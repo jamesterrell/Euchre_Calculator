@@ -33,6 +33,23 @@ full_euchre_deck = np.array(
     ]
 )
 
+card_suits = {
+    'hearts': [],
+    'diamonds': [],
+    'spades': [],
+    'clubs': []
+}
+
+for coord in full_euchre_deck:
+    x, y = coord
+    if x < 0:
+        card_suits['hearts'].append(coord)
+    elif x > 0:
+        card_suits['diamonds'].append(coord)
+    elif y > 0:
+        card_suits['spades'].append(coord)
+    elif y < 0:
+        card_suits['clubs'].append(coord)
 
 def card_evaluator(card: np.array):
     evaluator = np.array([0, 0])
