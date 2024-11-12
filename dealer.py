@@ -7,7 +7,7 @@ class dealer:
     players: int
     
     def deal_cards(self) -> None:
-        remaining_cards = np.arange(0, 24)
+        remaining_cards = np.arange(0, len(self.deck))
         
         # Create a dictionary to store hands
         self.hands = {}
