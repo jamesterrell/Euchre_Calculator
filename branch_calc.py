@@ -13,6 +13,8 @@ def filter_branch_by_hand(branch, hand, column_idx, target):
         follows_suit = [coord for coord in hand if (coord[0] == 0 and coord[1] > 0) or coord[1] == -135]
     if x==0 and y<0:
         follows_suit = [coord for coord in hand if (coord[0] == 0 and coord[1] < 0 and coord[1]>-15)]
+    if x==0 and y==-135:
+        follows_suit = [coord for coord in hand if (coord[0] == 0 and coord[1] > 0)]
     if x>0 and y==0: 
         follows_suit = [coord for coord in hand if (coord[1] == 0 and coord[0] > 0)]
     if x<0 and y==0: 
