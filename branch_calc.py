@@ -32,7 +32,7 @@ def filter_branch_by_hand(branch, hand, column_idx, target):
 def setdiff2d_idx(arr1, arr2):
     delta = set(map(tuple, arr2))
     idx = [tuple(x) not in delta for x in arr1]
-    return arr1[idx]
+    return np.array(arr1[idx])
 
 # use the angle with respect to the x-axis to indetify suit for a card
 def suit_id(arr):
