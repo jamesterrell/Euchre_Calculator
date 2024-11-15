@@ -2,7 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 
 @dataclass
-class dealer:
+class Dealer:
     deck: np.ndarray
     players: int
     
