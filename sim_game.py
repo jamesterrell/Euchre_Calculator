@@ -3,12 +3,12 @@ from play_round import PlayRound, find_winners_vectorized
 from branch_calc import compute_set_difference
 
 
-def game_sim(dealt_hands: list):
+def game_sim(dealt_hands: list, first_play: range | list = range(5)):
     # round1
     score = []
     round1_tricks = []
 
-    for i in range(5):
+    for i in first_play:
         round1 = PlayRound(hands=dealt_hands, lead=0, card_play=i)
         round1_play = round1.play_round()
         round1_tricks.append(round1_play)
