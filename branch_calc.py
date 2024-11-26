@@ -29,10 +29,20 @@ def filter_branch_by_hand(branch, hand, column_idx, target):
     return branch
 
 
-def setdiff2d_idx(arr1, arr2):
-    delta = set(map(tuple, arr2))
-    idx = [tuple(x) not in delta for x in arr1]
-    return np.array(arr1[idx])
+# def setdiff2d_idx(arr1, arr2):
+#     delta = set(map(tuple, arr2))
+#     idx = [tuple(x) not in delta for x in arr1]
+#     return np.array(arr1[idx])
+
+def compute_set_difference(arr1, arr2):
+    results = []
+    for a1_group, a2 in zip(arr1, arr2):
+        group_result = []
+        for a1 in a1_group:
+            set_diff = np.array([row for row in a1 if row.tolist() not in a2.tolist()])
+            group_result.append(set_diff)
+        results.append(group_result)
+    return results
 
 # use the angle with respect to the x-axis to indetify suit for a card
 def suit_id(arr):
