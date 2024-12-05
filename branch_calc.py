@@ -72,10 +72,6 @@ def filter_branch_by_hand(branch, hand, column_idx, target):
         )
         branch = branch[matches]
 
-    # don't filter the branch if we can't pinpoint the situation (left here as a safegaurd)
-    else:
-        pass
-
     return branch
 
 
