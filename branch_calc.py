@@ -1,5 +1,7 @@
 import numpy as np
+from numba import jit
 
+@jit(nopython=True)
 def calc_all_possible_hands(hands):
     grids = np.meshgrid(*[np.arange(len(a)) for a in hands], indexing='ij')
     product_indices = np.stack(grids, axis=-1).reshape(-1, len(hands))
@@ -7,6 +9,7 @@ def calc_all_possible_hands(hands):
     all_possible_tricks = np.array([[hands[i][idx] for i, idx in enumerate(row)] for row in product_indices])
     return all_possible_tricks
 
+@jit(nopython=True)
 def filter_branch_by_hand(branch, hand, column_idx, target):
     x, y = target
     ov_worst_eval = np.argmin([np.linalg.norm(i) for i in hand])
@@ -74,7 +77,7 @@ def filter_branch_by_hand(branch, hand, column_idx, target):
 
     return branch
 
-
+@jit(nopython=True)
 def compute_set_difference(arr1, arr2):
     results = []
     for a1_group, a2 in zip(arr1, arr2):
@@ -86,9 +89,11 @@ def compute_set_difference(arr1, arr2):
     return results
 
 # use the angle with respect to the x-axis to indetify suit for a card
+@jit(nopython=True)
 def suit_id(arr):
     return np.arctan2(arr[1], arr[0])
 
+@jit(nopython=True)
 def find_winner(lead, trick):
     if np.max([np.linalg.norm(card) for card in trick])>80:
         return np.argmax([np.linalg.norm(card) for card in trick])

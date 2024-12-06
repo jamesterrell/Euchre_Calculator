@@ -1,16 +1,16 @@
 import numpy as np
-from play_round import PlayRound, find_winners_vectorized
+from play_round import play_round, find_winners_vectorized
 from branch_calc import compute_set_difference
+from numba import jit
 
-
+@jit(nopython=True)
 def game_sim(dealt_hands: list, first_play: range | list = range(5), second_play: range | list = range(4) ):
     # round1
     score = []
     round1_tricks = []
 
     for i in first_play:
-        round1 = PlayRound(hands=dealt_hands, lead=0, card_play=i)
-        round1_play = round1.play_round()
+        round1_play = play_round(hands=dealt_hands, lead=0, card_play=i)
         round1_tricks.append(round1_play)
         score.append(
             find_winners_vectorized(
@@ -33,8 +33,7 @@ def game_sim(dealt_hands: list, first_play: range | list = range(5), second_play
 
     for i, j in zip(round2_hands, score):
         for k in second_play:
-            round2 = PlayRound(hands=i, lead=j, card_play=k)
-            round2_play = round2.play_round()
+            round2_play = play_round(hands=i, lead=j, card_play=k)
             round2_tricks.append(round2_play)
             winners = find_winners_vectorized(
                 leads=len(round2_play) * [j], tricks=round2_play
@@ -61,9 +60,7 @@ def game_sim(dealt_hands: list, first_play: range | list = range(5), second_play
 
     for h, i, j in zip(r2_full_res, round3_hands_comp, round2_score):
         for k in range(3):
-            round3 = PlayRound(hands=i, lead=j, card_play=k)
-
-            round3_play = round3.play_round()
+            round3_play = play_round(hands=i, lead=j, card_play=k)
             round3_tricks.append(round3_play)
             winners = find_winners_vectorized(
                 leads=len(round3_play) * [j], tricks=round3_play
@@ -90,8 +87,7 @@ def game_sim(dealt_hands: list, first_play: range | list = range(5), second_play
 
     for h, i, j in zip(r3_full_res, round4_hands_comp, round3_score):
         for k in range(2):
-            round4 = PlayRound(hands=i, lead=j, card_play=k)
-            round4_play = round4.play_round()
+            round4_play = play_round(hands=i, lead=j, card_play=k)
             round4_tricks.append(round4_play)
             winners = find_winners_vectorized(
                 leads=len(round4_play) * [j], tricks=round4_play
@@ -114,8 +110,7 @@ def game_sim(dealt_hands: list, first_play: range | list = range(5), second_play
     round5_score = []
 
     for h, i, j in zip(r4_full_res, round5_hands_comp, round4_score):
-        round5 = PlayRound(hands=i, lead=j, card_play=0)
-        round5_play = round5.play_round()
+        round5_play = play_round(hands=i, lead=j, card_play=0)
         winners = find_winners_vectorized(
             leads=len(round5_play) * [j], tricks=round5_play
         )
