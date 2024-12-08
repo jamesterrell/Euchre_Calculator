@@ -1,34 +1,23 @@
 import numpy as np
-from dataclasses import dataclass
-from functools import cached_property
+from numba import njit
 from branch_calc import (
     filter_branch_by_hand,
     calc_all_possible_hands,
 )
-@dataclass
-class PlayRound:
-    hands: list
-    lead: int
-    card_play: int
 
-    @cached_property
-    def stump(self):
-        all_possible_tricks = calc_all_possible_hands(hands=self.hands)
-        contains_target = np.any(
-            np.all(all_possible_tricks == self.hands[self.lead][self.card_play], axis=-1), axis=1
-        )
-        stump = all_possible_tricks[contains_target]
-        stump = filter_branch_by_hand(stump, self.hands[(self.lead+1)%4], (self.lead+1)%4, self.hands[self.lead][self.card_play])
-        stump = filter_branch_by_hand(stump, self.hands[(self.lead+2)%4], (self.lead+2)%4, self.hands[self.lead][self.card_play])
-        stump = filter_branch_by_hand(stump, self.hands[(self.lead+3)%4], (self.lead+3)%4, self.hands[self.lead][self.card_play]) 
-        return stump
+def play_round(hands, lead, card_play):
+    all_possible_tricks = calc_all_possible_hands(hands=hands)
+    contains_target = np.any(
+        np.all(all_possible_tricks == hands[lead][card_play], axis=-1), axis=1
+    )
+    stump = all_possible_tricks[contains_target]
+    stump = filter_branch_by_hand(stump, hands[(lead+1)%4], (lead+1)%4, hands[lead][card_play])
+    stump = filter_branch_by_hand(stump, hands[(lead+2)%4], (lead+2)%4, hands[lead][card_play])
+    stump = filter_branch_by_hand(stump, hands[(lead+3)%4], (lead+3)%4, hands[lead][card_play]) 
+    return stump
     
-    def play_round(self):
-        return self.stump
-    
-    def show_hands(self):
-        return len(self.stump) * [self.hands]
-    
+
+      
 def find_winners_vectorized(leads, tricks):
 # Calculate norms for all cards in all tricks at once
     norms = np.linalg.norm(tricks, axis=2)  # Shape: (N, 4)

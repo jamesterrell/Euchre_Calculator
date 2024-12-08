@@ -1,4 +1,5 @@
 import numpy as np
+from numba import njit
 
 def calc_all_possible_hands(hands):
     grids = np.meshgrid(*[np.arange(len(a)) for a in hands], indexing='ij')
@@ -89,6 +90,7 @@ def compute_set_difference(arr1, arr2):
 def suit_id(arr):
     return np.arctan2(arr[1], arr[0])
 
+@njit
 def find_winner(lead, trick):
     if np.max([np.linalg.norm(card) for card in trick])>80:
         return np.argmax([np.linalg.norm(card) for card in trick])
