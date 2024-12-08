@@ -1,5 +1,4 @@
 import numpy as np
-from numba import njit
 from branch_calc import (
     filter_branch_by_hand,
     calc_all_possible_hands,
