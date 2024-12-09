@@ -90,3 +90,32 @@ def n_winners(branch, lead):
         winner = n_find_winner(trick=branch[i], lead=lead)
         score[i] = winner  # Direct indexing
     return score
+
+@njit
+def array_set_difference(arr1, arr2):
+    # Create a result array with the same shape as input
+    shape_arr = (arr1.shape[0],int(arr1.shape[1]-1),arr1.shape[2])
+    result = np.zeros(shape=shape_arr, dtype=np.int64)
+    
+    # Iterate through each 2D subarray in arr1
+    for i in range(arr1.shape[0]):
+        # Track valid rows
+        valid_rows = 0
+        
+        # Check each row in the current subarray
+        for j in range(arr1.shape[1]):
+            # Assume this row is valid until proven otherwise
+            is_valid = True
+            
+            # Check against each row in arr2
+            for k in range(arr2.shape[0]):
+                if np.array_equal(arr1[i, j], arr2[k]):
+                    is_valid = False
+                    break
+            
+            # If row is valid, add it to result
+            if is_valid:
+                result[i, valid_rows] = arr1[i, j]
+                valid_rows += 1
+    
+    return result
