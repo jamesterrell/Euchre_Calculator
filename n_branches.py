@@ -153,3 +153,51 @@ def common_sense(branch, target, player):
 
     else:
         return branch
+
+@njit
+def smart_loss(branch, target, player):
+    num_branches = len(branch)
+    store_cards = np.zeros((num_branches, 2), dtype=np.int64)
+    
+    # Explicitly copy cards for the given player
+    for i in range(num_branches):
+        store_cards[i, 0] = branch[i, player, 0]
+        store_cards[i, 1] = branch[i, player, 1]
+
+    # Prepare boolean masks
+    store_bools = np.zeros(num_branches, dtype=np.int8)
+    
+    for j in range(num_branches):
+        # Check that card is not trump
+        card_norm = np.linalg.norm(store_cards[j].astype(np.float64))
+        
+        # Check suit conditions
+        current_suit = suit_id(store_cards[j])
+        target_suit = suit_id(target)
+        
+        # Set boolean condition
+        store_bools[j] = (card_norm < 80.0) and (current_suit != target_suit)
+
+    # If all cards can't follow suit and are not trump
+    if np.all(store_bools):
+        # Calculate card values
+        store_vals = np.zeros(num_branches, dtype=np.float64)
+        for i in range(num_branches):
+            store_vals[i] = np.linalg.norm(branch[i, player].astype(np.float64))
+
+        # Find worst card index
+        worst_card_ind = np.argmin(store_vals)
+
+        # Find branches with the worst card
+        smart_loss_bools = np.zeros(num_branches, dtype=np.int8)
+        worst_card_val = np.linalg.norm(store_cards[worst_card_ind].astype(np.float64))
+        
+        for i in range(num_branches):
+            branch_val = np.linalg.norm(store_cards[i].astype(np.float64))
+            smart_loss_bools[i] = np.isclose(branch_val, worst_card_val)
+
+        # Return filtered branches
+        return branch[smart_loss_bools == 1]
+
+    else:
+        return branch
