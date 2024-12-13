@@ -119,3 +119,37 @@ def array_set_difference(arr1, arr2):
                 valid_rows += 1
     
     return result
+
+@njit
+def common_sense(branch, target, player):
+    store_cards = np.zeros(shape=(len(branch), 2), dtype=np.int64)
+    for i in range(len(branch)):
+        store_cards[i] = branch[i][player]
+
+    # if the player can follow suit, see if they can beat the lead card
+    store_bools = np.zeros(shape=(len(branch), 2), dtype=np.bool_)
+    for j in range(len(store_cards)):
+        store_bools[j] = (
+            np.linalg.norm(store_cards[j].astype(np.float64))
+            < np.linalg.norm(target.astype(np.float64))
+        ) and (suit_id(store_cards[j]) == suit_id(target))
+
+    # if that player can't beat the lead card, they'll play their worst card
+    # that still follows suit
+    if np.all(store_bools):
+        store_vals = np.zeros(shape=(len(branch)), dtype=np.int64)
+        for i in range(len(branch)):
+            store_vals[i] = np.linalg.norm(branch[i][player].astype(np.float64))
+
+        worst_card_ind = np.argmin(store_vals)
+
+        common_sense_bools = np.zeros(shape=(len(branch)), dtype=np.bool_)
+        for i in range(len(branch)):
+            common_sense_bools[i] = np.all(
+                branch[i][player] == store_cards[worst_card_ind]
+            )
+
+        return branch[common_sense_bools]
+
+    else:
+        return branch
