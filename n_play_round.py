@@ -55,7 +55,6 @@ def round1(hands_dealt):
             r2_leads[branch_count] = rd1_winner
             
             branch_count += 1
-    print(branch_count)
     # Trim to actual size
     return r2_leads[:branch_count], r2_hands[:branch_count, :, :, :]
 
@@ -89,6 +88,5 @@ def next_round(current_hands, leads, game_round, game_score):
                 total_score[branch_count, game_round-1] = rd_winner
                 
                 branch_count += 1
-    print(branch_count)
     # Trim to actual size
     return next_round_leads[:branch_count], next_round_hands[:branch_count, :, :, :], total_score[:branch_count]
