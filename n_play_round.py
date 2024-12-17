@@ -7,7 +7,8 @@ from n_branches import (
     n_find_winner,
     array_set_difference,
     common_sense,
-    smart_loss
+    smart_loss,
+    trump_or_dump
 )
 
 @njit
@@ -18,14 +19,17 @@ def n_play_round(hands, lead, card_play):
     branch = nfb_by_hand(branch=branch, hand=(lead+1)%4, target=hands[lead][card_play])
     branch = common_sense(branch=branch, target=hands[lead][card_play], player=(lead+1)%4)
     branch = smart_loss(branch=branch, target=hands[lead][card_play], player=(lead+1)%4)
+    branch = trump_or_dump(branch=branch, target=hands[lead][card_play], player=(lead+1)%4) 
 
     branch = nfb_by_hand(branch=branch, hand=(lead+2)%4, target=hands[lead][card_play])
     branch = common_sense(branch=branch, target=hands[lead][card_play], player=(lead+2)%4)
     branch = smart_loss(branch=branch, target=hands[lead][card_play], player=(lead+2)%4)
+    branch = trump_or_dump(branch=branch, target=hands[lead][card_play], player=(lead+2)%4)
 
     branch = nfb_by_hand(branch=branch, hand=(lead+3)%4, target=hands[lead][card_play])
     branch = common_sense(branch=branch, target=hands[lead][card_play], player=(lead+3)%4)
     branch = smart_loss(branch=branch, target=hands[lead][card_play], player=(lead+3)%4)
+    branch = trump_or_dump(branch=branch, target=hands[lead][card_play], player=(lead+3)%4)
 
     return branch
 

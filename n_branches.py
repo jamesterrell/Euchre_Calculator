@@ -4,7 +4,7 @@ from numba import njit
 @njit
 def n_tricks(hands):
     tc = -1
-    cards = int(hands.size/8)
+    cards = int(hands.shape[1])
     trees = np.zeros(shape=(cards**4, 4, 2), dtype=np.int64)
     for i in range(cards):
         for j in range(cards):
@@ -28,8 +28,27 @@ def n_ap_filter(tricks, target, lead):
     return tricks[np.array(mask)]
 
 @njit
-def suit_id(arr):
-    return np.arctan2(arr[1], arr[0])
+def suit_id(vector):
+    # Manual magnitude calculation (equivalent to np.linalg.norm())
+    magnitude = np.sqrt(vector[0]**2 + vector[1]**2)
+    
+    # Cosine of angle is dot product divided by magnitudes
+    cos_angle = float(vector[0]) / magnitude
+    
+    # Manual clip function
+    if cos_angle > 1.0:
+        cos_angle = 1.0
+    elif cos_angle < -1.0:
+        cos_angle = -1.0
+    
+    # Use arccos to get the angle
+    angle_radians = np.arccos(cos_angle)
+    
+    # Adjust for vectors below x-axis
+    if vector[1] < 0:
+        angle_radians = 2 * np.pi - angle_radians
+
+    return angle_radians
     
 
 @njit
@@ -198,6 +217,62 @@ def smart_loss(branch, target, player):
 
         # Return filtered branches
         return branch[smart_loss_bools == 1]
+
+    else:
+        return branch
+    
+
+@njit
+def trump_or_dump(branch, target, player):
+    num_branches = branch.shape[0]
+    store_cards = np.zeros((num_branches, 2), dtype=branch.dtype)
+    
+    # Explicitly copy cards for the given player
+    for i in range(num_branches):
+        store_cards[i, 0] = branch[i, player, 0]
+        store_cards[i, 1] = branch[i, player, 1]
+
+    # Prepare boolean masks
+    store_bools = np.zeros(num_branches, dtype=np.bool_)
+    
+    for j in range(num_branches):
+        # Check that card is not trump - convert to float for norm
+        card_norm = np.linalg.norm(store_cards[j].astype(np.float64))
+        
+        # Check suit conditions - convert to float for suit calculation
+        current_suit = suit_id(store_cards[j])
+        target_suit = suit_id(target)
+        
+        # Set boolean condition
+        store_bools[j] = (card_norm > 80.0) or (current_suit != target_suit)
+
+    # Player has trump but can not follow suit
+    if np.all(store_bools):
+        # Calculate card values
+        store_vals = np.zeros(num_branches, dtype=branch.dtype)
+        for i in range(num_branches):
+            store_vals[i] = np.linalg.norm(branch[i, player].astype(np.float64))
+
+        # Find worst card index
+        worst_card_ind = np.argmin(store_vals)
+
+        # find trump cards
+        trump_cards = store_vals > 80
+
+        # find worst card value
+        worst_card_val = np.linalg.norm(store_cards[worst_card_ind].astype(np.float64))
+
+        # Find worst cards
+        worst_cards = store_vals == worst_card_val
+
+        # Find branches with the worst card or trump card
+        trump_or_dump_bools = np.zeros(num_branches, dtype=np.bool_)
+
+        for i in range(num_branches):
+            trump_or_dump_bools[i] = trump_cards[i] or worst_cards[i]
+
+        # Return filtered branches
+        return branch[trump_or_dump_bools]
 
     else:
         return branch
