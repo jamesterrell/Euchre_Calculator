@@ -13,6 +13,20 @@ from n_branches import (
 
 @njit
 def n_play_round(hands, lead, card_play):
+    """
+    Simulates a single round of play in a card game where each player plays one card.
+    The function calculates all possible tricks, applies various filters (such as filtering 
+    by hand and common sense), and applies logic for deciding to play a trump or the worst card. 
+    The final branch representing all possible outcomes of the round is returned.
+
+    Arguments:
+        hands (numpy.ndarray): A 3D array representing the cards dealt to each player.
+        lead (int): The index of the player who leads the trick.
+        card_play (int): The index of the card played by the lead player.
+
+    Returns:
+        numpy.ndarray: A 3D array representing all possible hands after the round.
+    """
     all_possible_tricks = n_tricks(hands)
     branch = n_ap_filter(tricks=all_possible_tricks, target=hands[lead][card_play], lead=lead)
 
@@ -35,6 +49,19 @@ def n_play_round(hands, lead, card_play):
 
 @njit
 def round1(hands_dealt):
+    """
+    Simulates the first round of the game, generating possible outcomes after each player 
+    plays one card. The function tracks the winner of each trick, updates the hands based on 
+    the played cards, and returns the winner's leads and the updated hands after the round.
+
+    Arguments:
+        hands_dealt (numpy.ndarray): A 3D array representing the hands dealt to each player.
+
+    Returns:
+        tuple: A tuple containing:
+            - r2_leads (numpy.ndarray): The array of winners for each round.
+            - r2_hands (numpy.ndarray): The array of hands after each round.
+    """
     # Pre-allocate maximum possible size
     max_branches = 625  # Worst-case scenario
     r2_hands = np.zeros((max_branches, hands_dealt.shape[0], hands_dealt.shape[1]-1, hands_dealt.shape[2]), dtype=np.int64)
@@ -60,6 +87,24 @@ def round1(hands_dealt):
 
 @njit
 def next_round(current_hands, leads, game_round, game_score):
+    """
+    Simulates the next round of the game based on the current hands and scores. It generates 
+    all possible outcomes after each player plays a card and updates the scores and hands accordingly. 
+    The function tracks the outcome of the trick and the updated hands, and returns the next round's leads, 
+    hands, and cumulative scores.
+
+    Arguments:
+        current_hands (numpy.ndarray): A 3D array representing the current hands of all players.
+        leads (numpy.ndarray): The current lead players for each trick.
+        game_round (int): The current round number in the game.
+        game_score (numpy.ndarray): The cumulative scores of each player.
+
+    Returns:
+        tuple: A tuple containing:
+            - next_round_leads (numpy.ndarray): The array of winners for each trick.
+            - next_round_hands (numpy.ndarray): The array of hands after each trick.
+            - total_score (numpy.ndarray): The cumulative scores after each trick.
+"""
     # Pre-allocate maximum possible size
     max_branches = len(leads)*4*4*4*4  # Worst-case scenario
     next_round_hands = np.zeros(shape=(max_branches, current_hands.shape[1], current_hands.shape[2]-1, current_hands.shape[3]), dtype=np.int64)
