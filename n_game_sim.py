@@ -37,7 +37,7 @@ def n_game_sim(game_hand: np.ndarray, eval_position: int):
     return np.mean(meta_results)
 
 
-@njit(parallel=True, fastmath=True, nogil=True)
+@njit(parallel=True, fastmath=True)
 def meta_game_sim(meta_hands: list, eval_position):
     """
     Simulates a series of full games using the provided hands and evaluates the performance 

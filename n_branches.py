@@ -203,16 +203,6 @@ def n_find_winner(trick, lead):
             return np.argmax(matching_norms)
 
 
-# @njit
-# def n_winners(branch, lead):
-#     tricks = int(branch.size / 8)
-#     score = np.zeros(tricks, dtype=np.int64)  # Change to 1D array
-#     for i in range(tricks):  # Iterate over indices
-#         winner = n_find_winner(trick=branch[i], lead=lead)
-#         score[i] = winner  # Direct indexing
-#     return score
-
-
 @njit
 def array_set_difference(arr1, arr2):
     """
