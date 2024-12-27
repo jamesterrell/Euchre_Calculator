@@ -3,10 +3,6 @@
 
 This project simulates a Euchre game to calculate the odds that a player's hand will result in a win, evaluating multiple rounds and factoring in trump cards, suit matching, and basic strategy. It can help Euchre players identify when to "order up" trump or when to pass. 
 
-## Overview
-
-The goal is to compute the probability of winning based on a player's hand. The simulation evaluates possible outcomes by simulating rounds, applying filtering techniques, and considering different strategies to predict win chances.
-
 ## Features
 
 - **Card Representation:** Cards are represented as vectors with suits and values encoded in 2D space.
@@ -61,8 +57,8 @@ full_euchre_deck = np.array(
 ## File Structure
 
 - `deck.py`: Contains the card definitions and the game logic related to the deck (e.g., defining suits and ranks).
-- `n_play_round.py`: Implements the logic for simulating a single round of the game, including determining the optimal card play for each player based on their hand.
-- `n_branches.py`: Defines functions for generating possible game branches and applying strategies like "trump or dump" and "smart loss."
+- `n_play_round.py`: Implements the logic for simulating a single round of the game, including determining card play for each player based on their hand.
+- `n_branches.py`: Defines functions for generating possible game branches and applying common sense strategies.
 - `meta_game.py`: Simulates a meta-game, where multiple hands are evaluated to determine the probability of a win for a given player.
 
 ## Key Functions
