@@ -9,7 +9,7 @@ def n_game_sim(game_hand: np.ndarray, eval_position: int):
     Simulates a full game using the provided hands and evaluates the outcome based on
     a specified player's position. The function runs five rounds of play, tracking the
     results and calculating the final score based on the player's performance. It then
-    returns the proportion of games in which the player's cards results in a win.
+    returns the expected value of the hand based on the scored outcomes.
 
     Arguments:
         game_hand (numpy.ndarray): A 3D array representing the cards dealt to each player.
@@ -50,7 +50,7 @@ def n_game_sim(game_hand: np.ndarray, eval_position: int):
                 or np.sum(results[i] % 2) == 4
                 or np.sum(results[i] % 2) == 4
             ):
-                score = 0
+                score = -2
             meta_results[i] = score
     else:
         for i in range(len(results)):
@@ -63,7 +63,7 @@ def n_game_sim(game_hand: np.ndarray, eval_position: int):
                 or np.sum(results[i] % 2) == 1
                 or np.sum(results[i] % 2) == 0
             ):
-                score = 0
+                score = -2
             meta_results[i] = score
 
     return np.mean(meta_results)
@@ -74,15 +74,14 @@ def meta_game_sim(meta_hands: list, eval_position):
     """
     Simulates a series of full games using the provided hands and evaluates the performance
     of a specified player across all games. The function runs multiple simulations of `n_game_sim`,
-    calculating the proportion of games where the player's cards results in a win.
+    calculating the expected value of the specified player's hand.
 
     Arguments:
         meta_hands (list): A list of 3D arrays, each representing a set of cards dealt to each player.
         eval_position (int): The index of the player whose performance is being evaluated.
 
     Returns:
-        float: The mean evaluation across all games, indicating the proportion of games where
-        the specified player's cards results in a win.
+        float: The mean score across all games, indicating the expected value of the specified player's hand.
     """
     meta_results = np.zeros(len(meta_hands), dtype=np.int64)
     for i in range(len(meta_hands)):
