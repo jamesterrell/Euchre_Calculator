@@ -48,7 +48,7 @@ def n_play_round(hands, lead, card_play):
     return branch
 
 @njit
-def round1(hands_dealt):
+def round1(hands_dealt: np.ndarray, chosen_card: int):
     """
     Simulates the first round of the game, generating possible outcomes after each player 
     plays one card. The function tracks the winner of each trick, updates the hands based on 
@@ -66,22 +66,21 @@ def round1(hands_dealt):
     max_branches = 625  # Worst-case scenario
     r2_hands = np.zeros((max_branches, hands_dealt.shape[0], hands_dealt.shape[1]-1, hands_dealt.shape[2]), dtype=np.int64)
     r2_leads = np.zeros(max_branches, dtype=np.int64)
-    
+    chosen_card = np.array(chosen_card, dtype=np.int64)
     # Track actual number of branches
     branch_count = 0
-    
-    for card in range(5):
-        branch = n_play_round(hands=hands_dealt, lead=0, card_play=card)
+
+    branch = n_play_round(hands=hands_dealt, lead=0, card_play=chosen_card)
         
-        for i in branch:
-            hand_set = array_set_difference(hands_dealt, i)
-            
-            # Directly assign to pre-allocated array
-            r2_hands[branch_count, :, :, :] = hand_set
-            rd1_winner = n_find_winner(trick=i, lead=0)
-            r2_leads[branch_count] = rd1_winner
-            
-            branch_count += 1
+    for i in branch:
+        hand_set = array_set_difference(hands_dealt, i)
+        
+        # Directly assign to pre-allocated array
+        r2_hands[branch_count, :, :, :] = hand_set
+        rd1_winner = n_find_winner(trick=i, lead=0)
+        r2_leads[branch_count] = rd1_winner
+        
+        branch_count += 1
     # Trim to actual size
     return r2_leads[:branch_count], r2_hands[:branch_count, :, :, :]
 

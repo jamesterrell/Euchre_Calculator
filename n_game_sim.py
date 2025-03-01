@@ -4,7 +4,7 @@ import numpy as np
 
 
 @njit
-def n_game_sim(game_hand: np.ndarray, eval_position: int):
+def n_game_sim(game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray):
     """
     Simulates a full game using the provided hands and evaluates the outcome based on
     a specified player's position. The function runs five rounds of play, tracking the
@@ -19,7 +19,7 @@ def n_game_sim(game_hand: np.ndarray, eval_position: int):
         float: The mean performance evaluation for the specified player, indicating the
         proportion of games where the player's performance exceeds a threshold.
     """
-    r2_leads, r2_hands = round1(hands_dealt=game_hand)
+    r2_leads, r2_hands = round1(hands_dealt=game_hand, chosen_card=r1_chosen_card)
     r3_leads, r3_hands, r2_score = next_round(
         current_hands=r2_hands,
         leads=r2_leads,
