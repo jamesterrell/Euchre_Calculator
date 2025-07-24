@@ -20,6 +20,7 @@ def n_game_sim(game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.nda
         proportion of games where the player's performance exceeds a threshold.
     """
     r2_leads, r2_hands = round1(hands_dealt=game_hand, chosen_card=r1_chosen_card)
+    
     r3_leads, r3_hands, r2_score = next_round(
         current_hands=r2_hands,
         leads=r2_leads,
@@ -41,30 +42,10 @@ def n_game_sim(game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.nda
 
     if eval_position % 2 == 0:
         for i in range(len(results)):
-            if np.sum(results[i] % 2) == 0:
-                score = 2
-            elif np.sum(results[i] % 2) == 1 or np.sum(results[i] % 2) == 2:
-                score = 1
-            elif (
-                np.sum(results[i] % 2) == 3
-                or np.sum(results[i] % 2) == 4
-                or np.sum(results[i] % 2) == 4
-            ):
-                score = -2
-            meta_results[i] = score
+            meta_results[i] = np.sum(results[i]%2)<3
     else:
         for i in range(len(results)):
-            if np.sum(results[i] % 2) == 5:
-                score = 2
-            elif np.sum(results[i] % 2) == 4 or np.sum(results[i] % 2) == 5:
-                score = 1
-            elif (
-                np.sum(results[i] % 2) == 2
-                or np.sum(results[i] % 2) == 1
-                or np.sum(results[i] % 2) == 0
-            ):
-                score = -2
-            meta_results[i] = score
+            meta_results[i] = np.sum(results[i]%2)>=3
 
     return np.mean(meta_results)
 
