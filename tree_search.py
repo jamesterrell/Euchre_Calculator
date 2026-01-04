@@ -7,7 +7,7 @@ from typing import Callable
 
 @njit
 def n_tree_sim(
-    game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray, lead: int
+    game_hand: np.ndarray, r1_chosen_card: np.ndarray, lead: int
 ):
     """
     Simulates a full game using the provided hands and evaluates the outcome based on
@@ -46,19 +46,24 @@ def n_tree_sim(
 
     meta_results = np.zeros(results.shape[0], dtype=np.int64)
 
-    if eval_position % 2 == 0:
-        for i in range(len(results)):
-            meta_results[i] = np.sum(results[i] % 2) < 3
-    else:
-        for i in range(len(results)):
-            meta_results[i] = np.sum(results[i] % 2) >= 3
+    # if eval_position % 2 == 0:
+    for i in range(len(results)):
+        if np.sum(results[i] % 2) >= 3:
+            score = 1
+        else: 
+            score = -1
+
+        meta_results[i] = score
+    # else:
+    #     for i in range(len(results)):
+    #         meta_results[i] = np.sum(results[i] % 2) >= 3
 
     return np.mean(meta_results)
 
 
 @njit
 def four_trick_sim(
-    game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray, lead: int, 
+    game_hand: np.ndarray, r1_chosen_card: np.ndarray, lead: int, 
 ):
     """
     Simulates a full game using the provided hands and evaluates the outcome based on
@@ -97,27 +102,38 @@ def four_trick_sim(
 
     meta_results = np.zeros(results.shape[0], dtype=np.int64)
 
-    if eval_position % 2 == 0:
-        for i in range(len(results)):
-            meta_results[i] = (np.sum(results[i] % 2) + (lead % 2)) < 3
-    else:
-        for i in range(len(results)):
-            meta_results[i] = (np.sum(results[i] % 2) + (lead % 2)) >= 3
+    for i in range(len(results)):
+        if np.sum(results[i] % 2) >= 3:
+            score = 1
+        else: 
+            score = -1
+
+        meta_results[i] = score
+    # else:
+    #     for i in range(len(results)):
+    #         meta_results[i] = np.sum(results[i] % 2) >= 3
 
     return np.mean(meta_results)
 
 
 def find_best_opener(
-    hands: np.ndarray, player: int, lead: int, tricks: int, sim_func: Callable
+    hands: np.ndarray, lead: int, tricks: int, sim_func: Callable
 ):
     winning_chances = np.zeros(tricks)
     for i in range(tricks):
         winning_chances[i] = sim_func(
-            game_hand=hands, eval_position=player, r1_chosen_card=i, lead=lead
+            game_hand=hands, r1_chosen_card=i, lead=lead
         )
 
     print(winning_chances)
-    return np.argmax(winning_chances)
+
+    if lead % 2 == 0:
+        best_opener = np.argmin(winning_chances)
+
+    else:
+        best_opener = np.argmax(winning_chances)
+
+    return best_opener
 
 
 @njit
