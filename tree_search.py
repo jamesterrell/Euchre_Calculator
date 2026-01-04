@@ -58,7 +58,7 @@ def n_tree_sim(
 
 @njit
 def four_trick_sim(
-    game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray, lead: int
+    game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray, lead: int, 
 ):
     """
     Simulates a full game using the provided hands and evaluates the outcome based on
