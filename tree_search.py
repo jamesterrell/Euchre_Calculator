@@ -5,6 +5,12 @@ from numba import njit
 from typing import Callable
 
 
+
+
+
+        
+
+
 @njit
 def n_tree_sim(
     game_hand: np.ndarray, r1_chosen_card: np.ndarray, lead: int
@@ -117,12 +123,12 @@ def four_trick_sim(
 
 
 def find_best_opener(
-    hands: np.ndarray, lead: int, tricks: int, sim_func: Callable
+    hands: np.ndarray, lead: int, tricks: int, previous_winners: np.array, sim_func: Callable, 
 ):
     winning_chances = np.zeros(tricks)
     for i in range(tricks):
         winning_chances[i] = sim_func(
-            game_hand=hands, r1_chosen_card=i, lead=lead
+            game_hand=hands, r1_chosen_card=i, lead=lead, num_tricks=tricks, previous_winners=previous_winners
         )
 
     print(winning_chances)
