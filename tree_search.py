@@ -121,6 +121,68 @@ def four_trick_sim(
 
     return np.mean(meta_results)
 
+def three_trick_sim(
+    game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray, lead: int, rd1_winner: int
+):
+    """
+    Simulates a full game using the provided hands and evaluates the outcome based on
+    a specified player's position. The function runs five rounds of play, tracking the
+    results and calculating the final score based on the player's performance. It then
+    returns the expected value of the hand based on the scored outcomes.
+
+    Arguments:
+        game_hand (numpy.ndarray): A 3D array representing the cards dealt to each player.
+        eval_position (int): The index of the player whose cards are being evaluated.
+
+    Returns:
+        float: The mean performance evaluation for the specified player, indicating the
+        proportion of games where the player's performance exceeds a threshold.
+    """
+    r3_leads, r3_hands = round1(
+        hands_dealt=game_hand, chosen_card=r1_chosen_card, leader=lead
+    )
+
+    r4_leads, r4_hands, r3_score = next_round(
+        current_hands=r2_hands,
+        leads=r2_leads,
+        game_round=3,
+        game_score=r2_leads.reshape(-1, 1),
+    )
+
+    r5_leads, r5_hands, r4_score = next_round(
+        current_hands=r4_hands, leads=r4_leads, game_round=5, game_score=r3_score
+    )
+
+    results = r4_score.reshape(r4_score.shape[0], 5)
+    for i in range(results.shape[0]):
+        results[i][1] = lead
+
+    meta_results = np.zeros(results.shape[0], dtype=np.int64)
+
+
+    for i in range(len(results)):
+        if np.sum(results[i] % 2) >= 3:
+            score = 1
+        else: 
+            score = -1
+
+        meta_results[i] = score
+
+    return np.mean(meta_results)
+
+
+def rd_3_find_best_opener(
+    hands: np.ndarray, player: int, lead: int, tricks: int, rd1_winner: int, sim_func: Callable
+):
+    winning_chances = np.zeros(tricks)
+    for i in range(tricks):
+        winning_chances[i] = sim_func(
+            game_hand=hands, eval_position=player, r1_chosen_card=i, lead=lead, rd1_winner=rd1_winner
+        )
+
+    print(winning_chances)
+    return np.argmax(winning_chances)
+
 
 def find_best_opener(
     hands: np.ndarray, lead: int, tricks: int, previous_winners: np.array, sim_func: Callable, 
