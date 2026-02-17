@@ -4,185 +4,130 @@ import numpy as np
 from numba import njit
 from typing import Callable
 
-
-
-
-
-        
-
-
 @njit
-def n_tree_sim(
-    game_hand: np.ndarray, r1_chosen_card: np.ndarray, lead: int
+def n_trick_sim(
+    game_hand: np.ndarray, 
+    r1_chosen_card: np.ndarray, 
+    lead: int,
+    num_tricks: int = 5,
+    previous_winners: np.ndarray = np.array([], dtype=np.int64)
 ):
     """
-    Simulates a full game using the provided hands and evaluates the outcome based on
-    a specified player's position. The function runs five rounds of play, tracking the
-    results and calculating the final score based on the player's performance. It then
-    returns the expected value of the hand based on the scored outcomes.
+    Simulates a game with a specified number of tricks and evaluates the outcome.
 
     Arguments:
         game_hand (numpy.ndarray): A 3D array representing the cards dealt to each player.
-        eval_position (int): The index of the player whose cards are being evaluated.
+        r1_chosen_card (np.ndarray): The index of the card chosen for the first round.
+        lead (int): The player who leads the first trick.
+        num_tricks (int): Number of tricks to simulate (1-5). Default is 5.
+        previous_winners (np.ndarray): Optional array of previous trick winners to include in scoring.
 
     Returns:
-        float: The mean performance evaluation for the specified player, indicating the
-        proportion of games where the player's performance exceeds a threshold.
+        float: The mean performance evaluation, indicating win probability.
     """
+    
+    # First round
     r2_leads, r2_hands = round1(
         hands_dealt=game_hand, chosen_card=r1_chosen_card, leader=lead
     )
-
-    r3_leads, r3_hands, r2_score = next_round(
-        current_hands=r2_hands,
-        leads=r2_leads,
-        game_round=2,
-        game_score=r2_leads.reshape(-1, 1),
-    )
-    r4_leads, r4_hands, r3_score = next_round(
-        current_hands=r3_hands, leads=r3_leads, game_round=3, game_score=r2_score
-    )
-    r5_leads, r5_hands, r4_score = next_round(
-        current_hands=r4_hands, leads=r4_leads, game_round=4, game_score=r3_score
-    )
-    r6_leads, r6_hands, r5_score = next_round(
-        current_hands=r5_hands, leads=r5_leads, game_round=5, game_score=r4_score
-    )
-    results = r5_score.reshape(r5_score.shape[0], 5)
-
-    meta_results = np.zeros(results.shape[0], dtype=np.int64)
-
-    # if eval_position % 2 == 0:
-    for i in range(len(results)):
-        if np.sum(results[i] % 2) >= 3:
-            score = 1
-        else: 
-            score = -1
-
-        meta_results[i] = score
-    # else:
-    #     for i in range(len(results)):
-    #         meta_results[i] = np.sum(results[i] % 2) >= 3
-
-    return np.mean(meta_results)
-
-
-@njit
-def four_trick_sim(
-    game_hand: np.ndarray, r1_chosen_card: np.ndarray, lead: int, 
-):
-    """
-    Simulates a full game using the provided hands and evaluates the outcome based on
-    a specified player's position. The function runs five rounds of play, tracking the
-    results and calculating the final score based on the player's performance. It then
-    returns the expected value of the hand based on the scored outcomes.
-
-    Arguments:
-        game_hand (numpy.ndarray): A 3D array representing the cards dealt to each player.
-        eval_position (int): The index of the player whose cards are being evaluated.
-
-    Returns:
-        float: The mean performance evaluation for the specified player, indicating the
-        proportion of games where the player's performance exceeds a threshold.
-    """
-    r2_leads, r2_hands = round1(
-        hands_dealt=game_hand, chosen_card=r1_chosen_card, leader=lead
-    )
-
-    r3_leads, r3_hands, r2_score = next_round(
-        current_hands=r2_hands,
-        leads=r2_leads,
-        game_round=3,
-        game_score=r2_leads.reshape(-1, 1),
-    )
-    r4_leads, r4_hands, r3_score = next_round(
-        current_hands=r3_hands, leads=r3_leads, game_round=4, game_score=r2_score
-    )
-    r5_leads, r5_hands, r4_score = next_round(
-        current_hands=r4_hands, leads=r4_leads, game_round=5, game_score=r3_score
-    )
-
-    results = r4_score.reshape(r4_score.shape[0], 5)
-    for i in range(results.shape[0]):
-        results[i][1] = lead
-
-    meta_results = np.zeros(results.shape[0], dtype=np.int64)
-
-    for i in range(len(results)):
-        if np.sum(results[i] % 2) >= 3:
-            score = 1
-        else: 
-            score = -1
-
-        meta_results[i] = score
-    # else:
-    #     for i in range(len(results)):
-    #         meta_results[i] = np.sum(results[i] % 2) >= 3
-
-    return np.mean(meta_results)
-
-def three_trick_sim(
-    game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray, lead: int, rd1_winner: int
-):
-    """
-    Simulates a full game using the provided hands and evaluates the outcome based on
-    a specified player's position. The function runs five rounds of play, tracking the
-    results and calculating the final score based on the player's performance. It then
-    returns the expected value of the hand based on the scored outcomes.
-
-    Arguments:
-        game_hand (numpy.ndarray): A 3D array representing the cards dealt to each player.
-        eval_position (int): The index of the player whose cards are being evaluated.
-
-    Returns:
-        float: The mean performance evaluation for the specified player, indicating the
-        proportion of games where the player's performance exceeds a threshold.
-    """
-    r3_leads, r3_hands = round1(
-        hands_dealt=game_hand, chosen_card=r1_chosen_card, leader=lead
-    )
-
-    r4_leads, r4_hands, r3_score = next_round(
-        current_hands=r2_hands,
-        leads=r2_leads,
-        game_round=3,
-        game_score=r2_leads.reshape(-1, 1),
-    )
-
-    r5_leads, r5_hands, r4_score = next_round(
-        current_hands=r4_hands, leads=r4_leads, game_round=5, game_score=r3_score
-    )
-
-    results = r4_score.reshape(r4_score.shape[0], 5)
-    for i in range(results.shape[0]):
-        results[i][1] = lead
-
-    meta_results = np.zeros(results.shape[0], dtype=np.int64)
-
-
-    for i in range(len(results)):
-        if np.sum(results[i] % 2) >= 3:
-            score = 1
-        else: 
-            score = -1
-
-        meta_results[i] = score
-
-    return np.mean(meta_results)
-
-
-def rd_3_find_best_opener(
-    hands: np.ndarray, player: int, lead: int, tricks: int, rd1_winner: int, sim_func: Callable
-):
-    winning_chances = np.zeros(tricks)
-    for i in range(tricks):
-        winning_chances[i] = sim_func(
-            game_hand=hands, eval_position=player, r1_chosen_card=i, lead=lead, rd1_winner=rd1_winner
+    
+    # Handle different numbers of tricks explicitly
+    if num_tricks == 1:
+        results = r2_leads.reshape(-1, 1)
+    
+    elif num_tricks == 2:
+        r3_leads, r3_hands, r3_score = next_round(
+            current_hands=r2_hands,
+            leads=r2_leads,
+            game_round=5,
+            game_score=r2_leads.reshape(-1, 1)
         )
+        results = r3_score.reshape(r3_score.shape[0], 5)
+    
+    elif num_tricks == 3:
+        r3_leads, r3_hands, r3_score = next_round(
+            current_hands=r2_hands,
+            leads=r2_leads,
+            game_round=4,
+            game_score=r2_leads.reshape(-1, 1)
+        )
+        r4_leads, r4_hands, r4_score = next_round(
+            current_hands=r3_hands,
+            leads=r3_leads,
+            game_round=5,
+            game_score=r3_score
+        )
+        results = r4_score.reshape(r4_score.shape[0], 5)
+    
+    elif num_tricks == 4:
+        r3_leads, r3_hands, r3_score = next_round(
+            current_hands=r2_hands,
+            leads=r2_leads,
+            game_round=3,
+            game_score=r2_leads.reshape(-1, 1)
+        )
+        r4_leads, r4_hands, r4_score = next_round(
+            current_hands=r3_hands,
+            leads=r3_leads,
+            game_round=4,
+            game_score=r3_score
+        )
+        r5_leads, r5_hands, r5_score = next_round(
+            current_hands=r4_hands,
+            leads=r4_leads,
+            game_round=5,
+            game_score=r4_score
+        )
+        results = r5_score.reshape(r5_score.shape[0], 5)
 
-    print(winning_chances)
-    return np.argmax(winning_chances)
+    
+    else:  # num_tricks == 5
+        r3_leads, r3_hands, r3_score = next_round(
+            current_hands=r2_hands,
+            leads=r2_leads,
+            game_round=2,
+            game_score=r2_leads.reshape(-1, 1)
+        )
+        r4_leads, r4_hands, r4_score = next_round(
+            current_hands=r3_hands,
+            leads=r3_leads,
+            game_round=3,
+            game_score=r3_score
+        )
+        r5_leads, r5_hands, r5_score = next_round(
+            current_hands=r4_hands,
+            leads=r4_leads,
+            game_round=4,
+            game_score=r4_score
+        )
+        r6_leads, r6_hands, r6_score = next_round(
+            current_hands=r5_hands,
+            leads=r5_leads,
+            game_round=5,
+            game_score=r5_score
+        )
+        results = r6_score.reshape(r6_score.shape[0], 5)
+    
+    # Calculate meta results
+    meta_results = np.zeros(results.shape[0], dtype=np.int64)
+    
+    for i in range(len(results)):
+        # Count wins for odd-numbered players (team 1)
+        total_odd_wins = np.sum(results[i] % 2)
+        
+        # Add previous winners to the count
+        if len(previous_winners) > 0:
+            total_odd_wins += np.sum(previous_winners % 2)
+        
+        # Team wins if they get 3+ tricks out of 5 total
+        if total_odd_wins >= 3:
+            score = 0
+        else: 
+            score = 1
 
+        meta_results[i] = score
+
+    return np.mean(meta_results)
 
 def find_best_opener(
     hands: np.ndarray, lead: int, tricks: int, previous_winners: np.array, sim_func: Callable, 
@@ -196,10 +141,10 @@ def find_best_opener(
     print(winning_chances)
 
     if lead % 2 == 0:
-        best_opener = np.argmin(winning_chances)
+        best_opener = np.argmax(winning_chances)
 
     else:
-        best_opener = np.argmax(winning_chances)
+        best_opener = np.argmin(winning_chances)
 
     return best_opener
 
