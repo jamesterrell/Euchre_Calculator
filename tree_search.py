@@ -1,4 +1,3 @@
-from n_game_sim import n_game_sim
 from n_play_round import round1, next_round
 import numpy as np
 from numba import njit

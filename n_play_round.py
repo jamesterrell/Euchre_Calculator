@@ -138,6 +138,7 @@ def next_round(current_hands, leads, game_round, game_score):
 
 
 @njit
+# I'm fairly certain I don't need this function any more. 
 def next_round_choose_card(current_hands, leads, game_round, game_score, card):
     # Pre-allocate maximum possible size
     max_branches = len(leads)*4*4*4*4  # Worst-case scenario
