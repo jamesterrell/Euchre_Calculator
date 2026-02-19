@@ -171,44 +171,176 @@ def trick_played(arr1, arr2):
     return missing_rows[:count]  
 
 
-@njit
-def r2_best_response(hands, best_opening_card):
-    r2_leads, r2_hands = round1(hands_dealt=hands, chosen_card=best_opening_card)
-    print(r2_hands)
-    resp_win_chances = np.zeros(len(r2_hands))
-    counter = 0
-    for hand, lead in zip(r2_hands, r2_leads):
-        r3_leads, r3_hands, r2_score = next_round(
-            current_hands=hand.reshape(1, 4, 4, 2),
-            leads=np.array([lead]),
-            game_round=2,
-            game_score=np.array([lead]).reshape(-1, 1),
-        )
-        r4_leads, r4_hands, r3_score = next_round(
-            current_hands=r3_hands, leads=r3_leads, game_round=3, game_score=r2_score
-        )
-        r5_leads, r5_hands, r4_score = next_round(
-            current_hands=r4_hands, leads=r4_leads, game_round=4, game_score=r3_score
-        )
-        r6_leads, r6_hands, r5_score = next_round(
-            current_hands=r5_hands, leads=r5_leads, game_round=5, game_score=r4_score
-        )
-        results = r5_score.reshape(r5_score.shape[0], 5)
+def find_best_response(
+    hands: np.ndarray,
+    lead: int,
+    tricks: int,
+    previous_winners: np.ndarray,
+    best_opener: int,
+):
+    """
+    Determines the optimal response card for the opposing team after the lead player 
+    has played their opening card.
 
-        meta_results = np.zeros(results.shape[0], dtype=np.int64)
+    This function simulates all possible responses to the opening card and evaluates 
+    which response maximizes the responding team's chances of winning. It considers 
+    the full game tree from the current state through all remaining tricks.
 
-        eval_position = 1
+    Arguments:
+        hands (np.ndarray): A 3D array of shape (4, n, 2) representing the current hands 
+            for all four players, where n is the number of cards remaining.
+        lead (int): The index (0-3) of the player who led the trick.
+        tricks (int): The number of tricks remaining to be played (1-5).
+        previous_winners (np.ndarray): Array of previous trick winners for scoring.
+        best_opener (int): The index of the card the lead player chose to play.
 
-        if eval_position % 2 == 0:
+    Returns:
+        tuple: A tuple containing:
+            - optimal_response (np.ndarray): The hand configuration after the optimal response
+            - winner (int): The index of the player who won this trick
+    """
+    
+    responder = (lead + 1) % 4  # The next player after lead
+    
+    # Simulate the first trick with the chosen opening card
+    r2_leads, r2_hands = round1(
+        hands_dealt=hands, chosen_card=best_opener, leader=lead
+    )
+    
+    r1_response_res = np.zeros(r2_leads.shape, dtype=np.float64)
+    
+    if tricks == 5:
+        # 5 tricks: Simulate all 4 remaining rounds
+        for w in range(r2_leads.shape[0]):
+            r3_leads, r3_hands, r2_score = next_round(
+                current_hands=np.array([r2_hands[w]]),
+                leads=np.array([r2_leads[w]]),
+                game_round=2,
+                game_score=np.array([r2_leads[w]]).reshape(-1, 1),
+            )
+            r4_leads, r4_hands, r3_score = next_round(
+                current_hands=r3_hands,
+                leads=r3_leads,
+                game_round=3,
+                game_score=r2_score,
+            )
+            r5_leads, r5_hands, r4_score = next_round(
+                current_hands=r4_hands,
+                leads=r4_leads,
+                game_round=4,
+                game_score=r3_score,
+            )
+            r6_leads, r6_hands, r5_score = next_round(
+                current_hands=r5_hands,
+                leads=r5_leads,
+                game_round=5,
+                game_score=r4_score,
+            )
+            
+            results = r5_score.reshape(r5_score.shape[0], 5)
+            meta_results = np.zeros(results.shape[0], dtype=np.int64)
+            
             for i in range(len(results)):
-                meta_results[i] = np.sum(results[i] % 2) < 3
-        else:
+                total_odd_wins = np.sum(results[i] % 2) + np.sum(previous_winners % 2)
+                meta_results[i] = total_odd_wins >= 3
+            
+            r1_response_res[w] = np.mean(meta_results)
+    
+    elif tricks == 4:
+        # 4 tricks: Simulate 3 remaining rounds
+        for w in range(r2_leads.shape[0]):
+            r3_leads, r3_hands, r2_score = next_round(
+                current_hands=np.array([r2_hands[w]]),
+                leads=np.array([r2_leads[w]]),
+                game_round=3,
+                game_score=np.array([r2_leads[w]]).reshape(-1, 1),
+            )
+            r4_leads, r4_hands, r3_score = next_round(
+                current_hands=r3_hands,
+                leads=r3_leads,
+                game_round=4,
+                game_score=r2_score,
+            )
+            r5_leads, r5_hands, r4_score = next_round(
+                current_hands=r4_hands,
+                leads=r4_leads,
+                game_round=5,
+                game_score=r3_score,
+            )
+            
+            results = r4_score.reshape(r4_score.shape[0], 5)
+            meta_results = np.zeros(results.shape[0], dtype=np.int64)
+            
             for i in range(len(results)):
-                meta_results[i] = np.sum(results[i] % 2) >= 3
-
-        resp_win_chances[counter] = np.mean(meta_results)
-        counter += 1
-
-    print(resp_win_chances)
-    best_response = np.argmax(resp_win_chances)
-    return r2_hands[best_response], r2_leads[best_response]
+                total_odd_wins = np.sum(results[i] % 2) + np.sum(previous_winners % 2)
+                meta_results[i] = total_odd_wins >= 3
+            
+            r1_response_res[w] = np.mean(meta_results)
+    
+    elif tricks == 3:
+        # 3 tricks: Simulate 2 remaining rounds
+        for w in range(r2_leads.shape[0]):
+            r3_leads, r3_hands, r2_score = next_round(
+                current_hands=np.array([r2_hands[w]]),
+                leads=np.array([r2_leads[w]]),
+                game_round=4,
+                game_score=np.array([r2_leads[w]]).reshape(-1, 1),
+            )
+            r4_leads, r4_hands, r3_score = next_round(
+                current_hands=r3_hands,
+                leads=r3_leads,
+                game_round=5,
+                game_score=r2_score,
+            )
+            
+            results = r3_score.reshape(r3_score.shape[0], 5)
+            meta_results = np.zeros(results.shape[0], dtype=np.int64)
+            
+            for i in range(len(results)):
+                total_odd_wins = np.sum(results[i] % 2) + np.sum(previous_winners % 2)
+                meta_results[i] = total_odd_wins >= 3
+            
+            r1_response_res[w] = np.mean(meta_results)
+    
+    elif tricks == 2:
+        # 2 tricks: Simulate 1 remaining round
+        for w in range(r2_leads.shape[0]):
+            r3_leads, r3_hands, r2_score = next_round(
+                current_hands=np.array([r2_hands[w]]),
+                leads=np.array([r2_leads[w]]),
+                game_round=5,
+                game_score=np.array([r2_leads[w]]).reshape(-1, 1),
+            )
+            
+            results = r2_score.reshape(r2_score.shape[0], 5)
+            meta_results = np.zeros(results.shape[0], dtype=np.int64)
+            
+            for i in range(len(results)):
+                total_odd_wins = np.sum(results[i] % 2) + np.sum(previous_winners % 2)
+                meta_results[i] = total_odd_wins >= 3
+            
+            r1_response_res[w] = np.mean(meta_results)
+    
+    elif tricks == 1:
+        # 1 trick: No more rounds to simulate, just evaluate this trick
+        for w in range(r2_leads.shape[0]):
+            results = np.array([r2_leads[w]]).reshape(1, 1)
+            meta_results = np.zeros(results.shape[0], dtype=np.int64)
+            
+            for i in range(len(results)):
+                total_odd_wins = np.sum(results[i] % 2) + np.sum(previous_winners % 2)
+                meta_results[i] = total_odd_wins >= 3
+            
+            r1_response_res[w] = np.mean(meta_results)
+    
+    # Select best response based on which team the responder is on
+    if responder % 2 == 0:
+        best_response = np.argmin(r1_response_res)  # Even team wants to minimize odd wins
+    else:
+        best_response = np.argmax(r1_response_res)  # Odd team wants to maximize odd wins
+    
+    print(f'Trick Played: \n{trick_played(hands, r2_hands[best_response])}')
+    optimal_response = r2_hands[best_response]
+    winner = r2_leads[best_response]
+    
+    return optimal_response, winner
