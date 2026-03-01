@@ -4,6 +4,29 @@ from numba import njit
 from typing import Callable
 
 @njit
+def declare_winner(winners: np.ndarray):
+    """
+    Determines which team won based on trick winners.
+    
+    Arguments:
+        winners (np.ndarray): 1D array of 5 player indices indicating who won each trick.
+                              Example: [1, 2, 1, 0, 3]
+        
+    Returns:
+        int: 0 if odd team (positions 1, 3) won, 1 if even team (positions 0, 2) won
+    """
+    # Count wins for odd-numbered players (team 1)
+    total_odd_wins = np.sum(winners % 2)
+    
+    # Odd team wins if they get 3+ tricks out of 5 total
+    if total_odd_wins >= 3:
+        score = 0  # Odd team (1, 3) won
+    else: 
+        score = 1  # Even team (0, 2) won
+    
+    return score
+
+@njit
 def n_trick_sim(
     game_hand: np.ndarray, 
     r1_chosen_card: np.ndarray, 
@@ -129,7 +152,7 @@ def n_trick_sim(
     return np.mean(meta_results)
 
 def find_best_opener(
-    hands: np.ndarray, lead: int, tricks: int, previous_winners: np.array, sim_func: Callable, 
+    hands: np.ndarray, lead: int, tricks: int, previous_winners: np.array, sim_func: Callable, verbose: bool
 ):
     winning_chances = np.zeros(tricks)
     for i in range(tricks):
@@ -137,7 +160,8 @@ def find_best_opener(
             game_hand=hands, r1_chosen_card=i, lead=lead, num_tricks=tricks, previous_winners=previous_winners
         )
 
-    print(winning_chances)
+    if verbose:
+        print(winning_chances)
 
     if lead % 2 == 0:
         best_opener = np.argmax(winning_chances)
@@ -177,6 +201,7 @@ def find_best_response(
     tricks: int,
     previous_winners: np.ndarray,
     best_opener: int,
+    verbose: bool
 ):
     """
     Determines the optimal response card for the opposing team after the lead player 
@@ -335,12 +360,141 @@ def find_best_response(
     
     # Select best response based on which team the responder is on
     if responder % 2 == 0:
-        best_response = np.argmin(r1_response_res)  # Even team wants to minimize odd wins
+        best_response = np.argmax(r1_response_res)  # Even team wants to max odd wins
     else:
-        best_response = np.argmax(r1_response_res)  # Odd team wants to maximize odd wins
+        best_response = np.argmin(r1_response_res)  # Odd team wants to min odd wins
+
     
-    print(f'Trick Played: \n{trick_played(hands, r2_hands[best_response])}')
+
     optimal_response = r2_hands[best_response]
     winner = r2_leads[best_response]
+    if verbose:
+        print(f'Lead {lead}')
+        print(f'Hands: \n{hands}')
+        print(f'Trick Played: \n{trick_played(hands, r2_hands[best_response])}')
     
     return optimal_response, winner
+
+
+def definitive_winner(given_hands: np.ndarray, verbose: bool):
+    """
+    Determines the definitive winner of a complete 5-trick Euchre game through optimal play.
+    
+    This function simulates a full game of Euchre where both teams play optimally at each 
+    decision point. It uses a minimax-style approach, alternating between finding the best 
+    opening card for the leading team and the best response from the opposing team for all 
+    five tricks.
+    
+    The game proceeds as follows:
+    1. Player 1 (odd team) finds their optimal opening card
+    2. The opposing team's best response is calculated
+    3. The winner of trick 1 leads trick 2, and the process repeats
+    4. This continues for all 5 tricks
+    5. The team that wins 3+ tricks is declared the winner
+    
+    Arguments:
+        given_hands (np.ndarray): A 3D array of shape (4, 5, 2) representing the initial 
+            hands dealt to all four players. Each card is represented as a 2D vector [x, y].
+            Players are indexed 0-3, where:
+                - Team 0 (even): players 0 and 2
+                - Team 1 (odd): players 1 and 3
+        verbose (bool): If True, prints detailed information about each trick including 
+            cards played, win probabilities, and intermediate game states. If False, runs 
+            silently.
+    
+    Returns:
+        int: The winning team index:
+            - 0 if the odd team (players 1, 3) won the game (3+ tricks)
+            - 1 if the even team (players 0, 2) won the game (3+ tricks)
+    """
+
+    best_opener = find_best_opener(
+        hands=given_hands, lead=1, tricks=5, previous_winners=np.array([]), sim_func=n_trick_sim, verbose=verbose
+    )
+    r2_optimal, winner_round1 = find_best_response(
+        hands=given_hands,
+        lead=1,
+        tricks=5,
+        previous_winners=np.array([]),
+        best_opener=best_opener,
+        verbose=verbose
+    )
+    r2_best_opener = find_best_opener(
+        hands=r2_optimal,
+        lead=winner_round1,
+        tricks=4,
+        previous_winners=np.array([winner_round1]),
+        sim_func=n_trick_sim,
+        verbose=verbose
+    )
+    r3_optimal, winner_round2 = find_best_response(
+        hands=r2_optimal,
+        lead=winner_round1,
+        tricks=4,
+        previous_winners=np.array([winner_round1]),
+        best_opener=r2_best_opener,
+        verbose=verbose
+
+    )
+    r3_best_opener = find_best_opener(
+        hands=r3_optimal,
+        lead=winner_round2,
+        tricks=3,
+        previous_winners=np.array([winner_round1, winner_round2]),
+        sim_func=n_trick_sim,
+        verbose=verbose
+    )
+    r4_optimal, winner_round3 = find_best_response(
+        hands=r3_optimal,
+        lead=winner_round2,
+        tricks=3,
+        previous_winners=np.array([winner_round1, winner_round2]),
+        best_opener=r3_best_opener,
+        verbose=verbose
+
+    )
+    r4_best_opener = find_best_opener(
+        hands=r4_optimal,
+        lead=winner_round3,
+        tricks=2,
+        previous_winners=np.array([winner_round1, winner_round2, winner_round3]),
+        sim_func=n_trick_sim,
+        verbose=verbose
+    )
+    r5_optimal, winner_round4 = find_best_response(
+        hands=r4_optimal,
+        lead=winner_round3,
+        tricks=2,
+        previous_winners=np.array([winner_round1, winner_round2, winner_round3]),
+        best_opener=r4_best_opener,
+        verbose=verbose
+
+    )
+    r5_best_opener = find_best_opener(
+        hands=r5_optimal,
+        lead=winner_round4,
+        tricks=1,
+        previous_winners=np.array(
+            [winner_round1, winner_round2, winner_round3, winner_round4]
+        ),
+        sim_func=n_trick_sim,
+        verbose=verbose
+    )
+
+    r6_optimal, winner_round5 = find_best_response(
+        hands=r5_optimal,
+        lead=winner_round4,
+        tricks=1,
+        previous_winners=np.array([winner_round1, winner_round2, winner_round3, winner_round4]),
+        best_opener=r5_best_opener,
+        verbose=verbose
+
+    )
+
+    total_winners = np.array([winner_round1, winner_round2, winner_round3, winner_round4, winner_round5], dtype=np.int64)
+
+    result = declare_winner(winners=total_winners)
+
+    return result
+
+    
