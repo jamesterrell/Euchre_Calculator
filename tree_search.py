@@ -359,10 +359,13 @@ def find_best_response(
             r1_response_res[w] = np.mean(meta_results)
     
     # Select best response based on which team the responder is on
+
+    # I'm struggling to figure out what happend, but switching the argmin/max maybe fixed the the fucked up response logic. 
+    # need to come back here and try to understand it. 
     if responder % 2 == 0:
-        best_response = np.argmax(r1_response_res)  # Even team wants to max odd wins
+        best_response = np.argmin(r1_response_res)  # Even team wants to min odd wins
     else:
-        best_response = np.argmin(r1_response_res)  # Odd team wants to min odd wins
+        best_response = np.argmax(r1_response_res)  # Odd team wants to max odd wins
 
     
 
