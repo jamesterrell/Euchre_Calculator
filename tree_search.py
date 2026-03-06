@@ -311,6 +311,10 @@ def player_best_prune(
             )
             results = r3_score.reshape(r3_score.shape[0], 5)
 
+        elif tricks == 1:
+            # 1 trick: No more rounds to simulate
+            results = filtered_leads.reshape(-1, 1)
+
         # Calculate meta results
         meta_results = np.zeros(results.shape[0], dtype=np.int64)
 
@@ -344,6 +348,52 @@ def player_best_prune(
     leads_prune = given_leads[best_prune]
 
     return final_prune, leads_prune
+
+def find_best_response(
+    lead: int,
+    hands: np.ndarray,
+    tricks: int,
+    previous_winners: np.ndarray,
+    best_opener: int,
+):
+    pr1, pr1_leads = player_best_prune(
+        player=(lead + 1) % 4,
+        first_response=True,
+        starting_hands=hands,
+        best_opener=best_opener,
+        starting_lead=lead,
+        tricks=tricks,
+        previous_winners=previous_winners,
+    )
+
+    pr2, pr2_leads = player_best_prune(
+        player=(lead + 2) % 4,
+        first_response=False,
+        best_opener=best_opener,
+        starting_lead=lead,
+        tricks=tricks,
+        given_hands=pr1,
+        given_leads=pr1_leads,
+    )
+
+    pr3, pr3_leads = player_best_prune(
+        player=(lead + 3) % 4,
+        first_response=False,
+        best_opener=best_opener,
+        starting_lead=lead,
+        tricks=tricks,
+        given_hands=pr2,
+        given_leads=pr2_leads,
+    )
+
+    pruned_hand = pr3[0]
+    pruned_lead = pr3_leads[0]
+
+    if pruned_lead.size != 1:
+        print(pruned_hand)
+        raise ValueError("Pruning did not result in a single optimal branch. Check the pruning logic.")
+
+    return pruned_hand, pruned_lead
 
 
 # def definitive_winner(given_hands: np.ndarray, verbose: bool):
