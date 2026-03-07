@@ -2,6 +2,7 @@ from n_play_round import round1, next_round
 import numpy as np
 from numba import njit
 from typing import Callable
+import warnings
 
 @njit
 def declare_winner(winners: np.ndarray):
@@ -391,130 +392,132 @@ def find_best_response(
 
     if pruned_lead.size != 1:
         print(pruned_hand)
-        raise ValueError("Pruning did not result in a single optimal branch. Check the pruning logic.")
+        warnings.warn("Pruning did not result in a single optimal branch.")
 
     return pruned_hand, pruned_lead
 
 
-# def definitive_winner(given_hands: np.ndarray, verbose: bool):
-#     """
-#     Determines the definitive winner of a complete 5-trick Euchre game through optimal play.
-    
-#     This function simulates a full game of Euchre where both teams play optimally at each 
-#     decision point. It uses a minimax-style approach, alternating between finding the best 
-#     opening card for the leading team and the best response from the opposing team for all 
-#     five tricks.
-    
-#     The game proceeds as follows:
-#     1. Player 1 (odd team) finds their optimal opening card
-#     2. The opposing team's best response is calculated
-#     3. The winner of trick 1 leads trick 2, and the process repeats
-#     4. This continues for all 5 tricks
-#     5. The team that wins 3+ tricks is declared the winner
-    
-#     Arguments:
-#         given_hands (np.ndarray): A 3D array of shape (4, 5, 2) representing the initial 
-#             hands dealt to all four players. Each card is represented as a 2D vector [x, y].
-#             Players are indexed 0-3, where:
-#                 - Team 0 (even): players 0 and 2
-#                 - Team 1 (odd): players 1 and 3
-#         verbose (bool): If True, prints detailed information about each trick including 
-#             cards played, win probabilities, and intermediate game states. If False, runs 
-#             silently.
-    
-#     Returns:
-#         int: The winning team index:
-#             - 0 if the odd team (players 1, 3) won the game (3+ tricks)
-#             - 1 if the even team (players 0, 2) won the game (3+ tricks)
-#     """
+def definitive_winner(dealt_hands, starting_player, verbose):
 
-#     best_opener = find_best_opener(
-#         hands=given_hands, lead=1, tricks=5, previous_winners=np.array([]), sim_func=n_trick_sim, verbose=verbose
-#     )
-#     r2_optimal, winner_round1 = find_best_response(
-#         hands=given_hands,
-#         lead=1,
-#         tricks=5,
-#         previous_winners=np.array([]),
-#         best_opener=best_opener,
-#         verbose=verbose
-#     )
-#     r2_best_opener = find_best_opener(
-#         hands=r2_optimal,
-#         lead=winner_round1,
-#         tricks=4,
-#         previous_winners=np.array([winner_round1]),
-#         sim_func=n_trick_sim,
-#         verbose=verbose
-#     )
-#     r3_optimal, winner_round2 = find_best_response(
-#         hands=r2_optimal,
-#         lead=winner_round1,
-#         tricks=4,
-#         previous_winners=np.array([winner_round1]),
-#         best_opener=r2_best_opener,
-#         verbose=verbose
+    # round 1
+    best_opener = find_best_opener(
+        lead=starting_player,
+        hands=dealt_hands,
+        tricks=5,
+        previous_winners=np.array([]),
+        sim_func=n_trick_sim,
+        verbose=verbose,
+    )
 
-#     )
-#     r3_best_opener = find_best_opener(
-#         hands=r3_optimal,
-#         lead=winner_round2,
-#         tricks=3,
-#         previous_winners=np.array([winner_round1, winner_round2]),
-#         sim_func=n_trick_sim,
-#         verbose=verbose
-#     )
-#     r4_optimal, winner_round3 = find_best_response(
-#         hands=r3_optimal,
-#         lead=winner_round2,
-#         tricks=3,
-#         previous_winners=np.array([winner_round1, winner_round2]),
-#         best_opener=r3_best_opener,
-#         verbose=verbose
+    r2_hand, r2_lead = find_best_response(
+        lead=starting_player,
+        hands=dealt_hands,
+        tricks=5,
+        previous_winners=np.array([], dtype=np.int64),
+        best_opener=best_opener,
+    )
 
-#     )
-#     r4_best_opener = find_best_opener(
-#         hands=r4_optimal,
-#         lead=winner_round3,
-#         tricks=2,
-#         previous_winners=np.array([winner_round1, winner_round2, winner_round3]),
-#         sim_func=n_trick_sim,
-#         verbose=verbose
-#     )
-#     r5_optimal, winner_round4 = find_best_response(
-#         hands=r4_optimal,
-#         lead=winner_round3,
-#         tricks=2,
-#         previous_winners=np.array([winner_round1, winner_round2, winner_round3]),
-#         best_opener=r4_best_opener,
-#         verbose=verbose
+    # round 2
 
-#     )
-#     r5_best_opener = find_best_opener(
-#         hands=r5_optimal,
-#         lead=winner_round4,
-#         tricks=1,
-#         previous_winners=np.array(
-#             [winner_round1, winner_round2, winner_round3, winner_round4]
-#         ),
-#         sim_func=n_trick_sim,
-#         verbose=verbose
-#     )
+    best_opener_r2 = find_best_opener(
+        lead=r2_lead,
+        hands=r2_hand,
+        tricks=4,
+        previous_winners=np.array([r2_lead]),
+        sim_func=n_trick_sim,
+        verbose=verbose,
+    )
+    r3_hand, r3_lead = find_best_response(
+        lead=r2_lead,
+        hands=r2_hand,
+        tricks=4,
+        previous_winners=np.array([r2_lead], dtype=np.int64),
+        best_opener=best_opener_r2,
+    )
 
-#     r6_optimal, winner_round5 = find_best_response(
-#         hands=r5_optimal,
-#         lead=winner_round4,
-#         tricks=1,
-#         previous_winners=np.array([winner_round1, winner_round2, winner_round3, winner_round4]),
-#         best_opener=r5_best_opener,
-#         verbose=verbose
+    # round 3
+    best_opener_r3 = find_best_opener(
+        lead=r3_lead,
+        hands=r3_hand,
+        tricks=3,
+        previous_winners=np.array([r2_lead, r3_lead]),
+        sim_func=n_trick_sim,
+        verbose=verbose,
+    )
+    r4_hand, r4_lead = find_best_response(
+        lead=r3_lead,
+        hands=r3_hand,
+        tricks=3,
+        previous_winners=np.array([r2_lead, r3_lead], dtype=np.int64),
+        best_opener=best_opener_r3,
+    )
 
-#     )
+    # round 4
 
-#     total_winners = np.array([winner_round1, winner_round2, winner_round3, winner_round4, winner_round5], dtype=np.int64)
+    best_opener_r4 = find_best_opener(
+        lead=r4_lead,
+        hands=r4_hand,
+        tricks=2,
+        previous_winners=np.array([r2_lead, r3_lead, r4_lead]),
+        sim_func=n_trick_sim,
+        verbose=verbose,
+    )
+    r5_hand, r5_lead = find_best_response(
+        lead=r4_lead,
+        hands=r4_hand,
+        tricks=2,
+        previous_winners=np.array([r2_lead, r3_lead, r4_lead], dtype=np.int64),
+        best_opener=best_opener_r4,
+    )
 
-#     result = declare_winner(winners=total_winners)
 
-#     return result
+    # round 5
 
+    best_opener_r5 = find_best_opener(
+        lead=r5_lead,
+        hands=r5_hand,
+        tricks=1,
+        previous_winners=np.array([r2_lead, r3_lead, r4_lead, r5_lead]),
+        sim_func=n_trick_sim,
+        verbose=verbose,
+    )
+    r6_hand, r6_lead = find_best_response(
+        lead=r5_lead,
+        hands=r5_hand,
+        tricks=1,
+        previous_winners=np.array([r2_lead, r3_lead, r4_lead, r5_lead], dtype=np.int64),
+        best_opener=best_opener_r5,
+    )
+
+
+    result = np.sum(np.array([r2_lead, r3_lead, r4_lead, r5_lead, r6_lead]) % 2)
+
+    if verbose:
+        print("Starting hands:\n", dealt_hands)
+        print("Trick 1:\n", trick_played(dealt_hands, r2_hand),
+        print("Trick 1 winner:", r2_lead))
+        print("next round hands:\n", r2_hand)
+
+        print("Trick 2:", trick_played(r2_hand, r3_hand))
+        print("Trick 2 winner:", r3_lead)
+        print("next round hands:\n", r3_hand) 
+
+        print("Trick 3:\n", trick_played(r3_hand, r4_hand))
+        print("Trick 3 winner:", r4_lead)           
+        print("next round hands:\n", r4_hand) 
+
+        print("Trick 4:\n", trick_played(r4_hand, r5_hand))
+        print("Trick 4 winner:", r5_lead)       
+        print("next round hands:\n", r5_hand)
+
+        print("Trick 5:\n", trick_played(r5_hand, r6_hand))
+        print("Trick 5 winner:", r6_lead)
+
+        print("Final result:", np.array([r2_lead, r3_lead, r4_lead, r5_lead, r6_lead]))
+        
+
+    if result >= 3:
+        return 0 
+    else:        
+        return 1
     

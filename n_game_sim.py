@@ -2,6 +2,7 @@ from n_play_round import round1, next_round
 from numba import njit
 import numpy as np
 
+# might not need this anymore, but keeping it for now just in case.
 
 @njit
 def n_game_sim(game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray, lead: int):
