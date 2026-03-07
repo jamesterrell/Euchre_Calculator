@@ -2,9 +2,10 @@ from n_play_round import round1, next_round
 from numba import njit
 import numpy as np
 
+# might not need this anymore, but keeping it for now just in case.
 
 @njit
-def n_game_sim(game_hand: np.ndarray, eval_position: int):
+def n_game_sim(game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray, lead: int):
     """
     Simulates a full game using the provided hands and evaluates the outcome based on
     a specified player's position. The function runs five rounds of play, tracking the
@@ -19,7 +20,10 @@ def n_game_sim(game_hand: np.ndarray, eval_position: int):
         float: The mean performance evaluation for the specified player, indicating the
         proportion of games where the player's performance exceeds a threshold.
     """
-    r2_leads, r2_hands = round1(hands_dealt=game_hand)
+    r2_leads, r2_hands = round1(
+        hands_dealt=game_hand, chosen_card=r1_chosen_card, leader=lead
+    )
+
     r3_leads, r3_hands, r2_score = next_round(
         current_hands=r2_hands,
         leads=r2_leads,
@@ -41,30 +45,10 @@ def n_game_sim(game_hand: np.ndarray, eval_position: int):
 
     if eval_position % 2 == 0:
         for i in range(len(results)):
-            if np.sum(results[i] % 2) == 0:
-                score = 2
-            elif np.sum(results[i] % 2) == 1 or np.sum(results[i] % 2) == 2:
-                score = 1
-            elif (
-                np.sum(results[i] % 2) == 3
-                or np.sum(results[i] % 2) == 4
-                or np.sum(results[i] % 2) == 4
-            ):
-                score = -2
-            meta_results[i] = score
+            meta_results[i] = np.sum(results[i] % 2) < 3
     else:
         for i in range(len(results)):
-            if np.sum(results[i] % 2) == 5:
-                score = 2
-            elif np.sum(results[i] % 2) == 4 or np.sum(results[i] % 2) == 5:
-                score = 1
-            elif (
-                np.sum(results[i] % 2) == 2
-                or np.sum(results[i] % 2) == 1
-                or np.sum(results[i] % 2) == 0
-            ):
-                score = -2
-            meta_results[i] = score
+            meta_results[i] = np.sum(results[i] % 2) >= 3
 
     return np.mean(meta_results)
 
@@ -85,7 +69,7 @@ def meta_game_sim(meta_hands: list, eval_position):
     """
     meta_results = np.zeros(len(meta_hands), dtype=np.int64)
     for i in range(len(meta_hands)):
-        res = n_game_sim(game_hand=meta_hands[i], eval_position=eval_position)
+        res = n_game_sim(game_hand=meta_hands[i], eval_position=eval_position, r1_chosen_card=i)
         meta_results[i] = res
 
     return np.mean(meta_results)
