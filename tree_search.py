@@ -5,20 +5,24 @@ from typing import Callable
 import warnings
 
 @njit
-def resulting_score(winners: np.ndarray, caller: int):
+def resulting_score(
+    winners: np.ndarray,
+    caller: int,
+    previous_winners: np.ndarray = np.array([], dtype=np.int64),
+):
     """
     Calculates the score for the calling team based on trick winners in a Euchre round.
-    
+
     In Euchre, teams are divided into even players (0, 2) and odd players (1, 3).
     The caller is the player who named the trump suit. The calling team wins if they take
     at least 3 tricks. If they take all 5 tricks, it's a "march" or sweep worth extra points.
     If the opposing team takes 3 or more tricks, the calling team is "euchred" and loses points.
-    
+
     Args:
         winners (np.ndarray): 1D array of 5 integers, each indicating the player (0-3) who won
                               the corresponding trick. Example: np.array([1, 2, 1, 0, 3])
         caller (int): The index of the player who called trump (0-3).
-    
+
     Returns:
         int: The score for the calling team.
              - 1: Calling team won (took 3+ tricks).
@@ -27,11 +31,13 @@ def resulting_score(winners: np.ndarray, caller: int):
     """
     # Count wins for odd-numbered players (team 1)
     total_odd_wins = np.sum(winners % 2)
-    
+
+    if len(previous_winners) > 0:
+        total_odd_wins += np.sum(previous_winners % 2)
+
     # Odd team wins if they get 3+ tricks out of 5 total
 
     if caller % 2 == 1:  # If caller is on the odd team, they need 3 wins to win
-
         if total_odd_wins >= 3 and total_odd_wins < 5:
             score = 1  # Odd team (1, 3) won
 
@@ -163,32 +169,27 @@ def n_trick_sim(
     
     for i in range(len(results)):
         # Count wins for odd-numbered players (team 1)
-        total_odd_wins = np.sum(results[i] % 2)
         
         # Add previous winners to the count
-        score = resulting_score(total_odd_wins, caller)  # Get score based on total wins and caller
+        score = resulting_score(results[i], caller, previous_winners)  # Get score based on total wins and caller
 
         meta_results[i] = score
 
     return np.mean(meta_results)
 
 def find_best_opener(
-    hands: np.ndarray, lead: int, tricks: int, previous_winners: np.array, sim_func: Callable, verbose: bool
+    hands: np.ndarray, lead: int, caller: int, tricks: int, previous_winners: np.array, sim_func: Callable, verbose: bool
 ):
-    winning_chances = np.zeros(tricks)
+    winning_score = np.zeros(tricks)
     for i in range(tricks):
-        winning_chances[i] = sim_func(
-            game_hand=hands, r1_chosen_card=i, lead=lead, num_tricks=tricks, previous_winners=previous_winners
+        winning_score[i] = sim_func(
+            game_hand=hands, r1_chosen_card=i, lead=lead, caller=caller, num_tricks=tricks, previous_winners=previous_winners
         )
 
     if verbose:
-        print(winning_chances)
+        print(winning_score)
 
-    if lead % 2 == 0:
-        best_opener = np.argmax(winning_chances)
-
-    else:
-        best_opener = np.argmin(winning_chances)
+    best_opener = np.argmax(winning_score)
 
     return best_opener
 
@@ -219,6 +220,7 @@ def trick_played(arr1, arr2):
 def player_best_prune(
     player: int,
     first_response: bool,
+    caller: int,
     best_opener: int = 0,
     starting_lead: int = 0,
     tricks: int = 5,
@@ -339,21 +341,31 @@ def player_best_prune(
         # Calculate meta results
         meta_results = np.zeros(results.shape[0], dtype=np.int64)
 
+        # for i in range(len(results)):
+        #     # Count wins for odd-numbered players (team 1)
+        #     total_odd_wins = np.sum(results[i] % 2)
+
+        #     # Add previous winners to the count
+        #     if len(previous_winners) > 0:
+        #         total_odd_wins += np.sum(previous_winners % 2)
+
+        #     # Team wins if they get 3+ tricks out of 5 total
+        #     if total_odd_wins >= 3:
+        #         score = 0
+        #     else:
+        #         score = 1
+
+        #     meta_results[i] = score
+
+
         for i in range(len(results)):
-            # Count wins for odd-numbered players (team 1)
-            total_odd_wins = np.sum(results[i] % 2)
-
+        # Count wins for odd-numbered players (team 1)
+        
             # Add previous winners to the count
-            if len(previous_winners) > 0:
-                total_odd_wins += np.sum(previous_winners % 2)
-
-            # Team wins if they get 3+ tricks out of 5 total
-            if total_odd_wins >= 3:
-                score = 0
-            else:
-                score = 1
+            score = resulting_score(results[i], caller, previous_winners)  # Get score based on total wins and caller
 
             meta_results[i] = score
+
 
         prune_masks[pruned_idx] = mask
         best_pruned_branch_res[pruned_idx] = np.mean(meta_results)
@@ -417,7 +429,7 @@ def find_best_response(
     return pruned_hand, pruned_lead
 
 
-def definitive_winner(dealt_hands, starting_player, verbose):
+def definitive_winner(dealt_hands, starting_player, caller, verbose):
 
     # round 1
     best_opener = find_best_opener(
@@ -510,7 +522,7 @@ def definitive_winner(dealt_hands, starting_player, verbose):
     )
 
 
-    result = np.sum(np.array([r2_lead, r3_lead, r4_lead, r5_lead, r6_lead]) % 2)
+    result = np.sum(np.array([r2_lead, r3_lead, r4_lead, r5_lead, r6_lead]))
 
     if verbose:
         print("Starting hands:\n", dealt_hands)
@@ -533,11 +545,15 @@ def definitive_winner(dealt_hands, starting_player, verbose):
         print("Trick 5:\n", trick_played(r5_hand, r6_hand))
         print("Trick 5 winner:", r6_lead)
 
-        print("Final result:", np.array([r2_lead, r3_lead, r4_lead, r5_lead, r6_lead]))
+        print("Final result:", result)
         
+    final_score = resulting_score(result, caller)
 
-    if result >= 3:
-        return 0 
-    else:        
-        return 1
+    return final_score
+
+
+    # if result >= 3:
+    #     return 0 
+    # else:        
+    #     return 1
     
