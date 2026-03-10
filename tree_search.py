@@ -189,7 +189,12 @@ def find_best_opener(
     if verbose:
         print(winning_score)
 
-    best_opener = np.argmax(winning_score)
+    if lead % 2 == caller % 2:  # If lead is on the same team as caller, we want to maximize score
+
+        best_opener = np.argmax(winning_score)
+
+    else:
+        best_opener = np.argmin(winning_score)
 
     return best_opener
 
@@ -372,7 +377,7 @@ def player_best_prune(
         pruned_idx += 1
 
     # Select best branch based on which team the responder is on
-    if player % 2 == 0:
+    if player % 2 == caller % 2:  # If player is on the same team as caller, we want to maximize score
         best_prune = prune_masks[np.argmax(best_pruned_branch_res)]
     else: 
         best_prune = prune_masks[np.argmin(best_pruned_branch_res)]
@@ -388,6 +393,7 @@ def find_best_response(
     tricks: int,
     previous_winners: np.ndarray,
     best_opener: int,
+    caller: int
 ):
     pr1, pr1_leads = player_best_prune(
         player=(lead + 1) % 4,
@@ -397,6 +403,7 @@ def find_best_response(
         starting_lead=lead,
         tricks=tricks,
         previous_winners=previous_winners,
+        caller=caller
     )
 
     pr2, pr2_leads = player_best_prune(
@@ -407,6 +414,7 @@ def find_best_response(
         tricks=tricks,
         given_hands=pr1,
         given_leads=pr1_leads,
+        caller=caller
     )
 
     pr3, pr3_leads = player_best_prune(
@@ -417,6 +425,7 @@ def find_best_response(
         tricks=tricks,
         given_hands=pr2,
         given_leads=pr2_leads,
+        caller=caller
     )
 
     pruned_hand = pr3[0]
@@ -439,6 +448,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         previous_winners=np.array([]),
         sim_func=n_trick_sim,
         verbose=verbose,
+        caller=caller,
     )
 
     r2_hand, r2_lead = find_best_response(
@@ -447,6 +457,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         tricks=5,
         previous_winners=np.array([], dtype=np.int64),
         best_opener=best_opener,
+        caller=caller,
     )
 
     # round 2
@@ -458,6 +469,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         previous_winners=np.array([r2_lead]),
         sim_func=n_trick_sim,
         verbose=verbose,
+        caller=caller,
     )
     r3_hand, r3_lead = find_best_response(
         lead=r2_lead,
@@ -465,6 +477,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         tricks=4,
         previous_winners=np.array([r2_lead], dtype=np.int64),
         best_opener=best_opener_r2,
+        caller=caller,
     )
 
     # round 3
@@ -475,6 +488,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         previous_winners=np.array([r2_lead, r3_lead]),
         sim_func=n_trick_sim,
         verbose=verbose,
+        caller=caller,
     )
     r4_hand, r4_lead = find_best_response(
         lead=r3_lead,
@@ -482,6 +496,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         tricks=3,
         previous_winners=np.array([r2_lead, r3_lead], dtype=np.int64),
         best_opener=best_opener_r3,
+        caller=caller,
     )
 
     # round 4
@@ -493,6 +508,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         previous_winners=np.array([r2_lead, r3_lead, r4_lead]),
         sim_func=n_trick_sim,
         verbose=verbose,
+        caller=caller,
     )
     r5_hand, r5_lead = find_best_response(
         lead=r4_lead,
@@ -500,6 +516,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         tricks=2,
         previous_winners=np.array([r2_lead, r3_lead, r4_lead], dtype=np.int64),
         best_opener=best_opener_r4,
+        caller=caller,
     )
 
 
@@ -512,6 +529,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         previous_winners=np.array([r2_lead, r3_lead, r4_lead, r5_lead]),
         sim_func=n_trick_sim,
         verbose=verbose,
+        caller=caller,
     )
     r6_hand, r6_lead = find_best_response(
         lead=r5_lead,
@@ -519,15 +537,16 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         tricks=1,
         previous_winners=np.array([r2_lead, r3_lead, r4_lead, r5_lead], dtype=np.int64),
         best_opener=best_opener_r5,
+        caller=caller,
     )
 
 
-    result = np.sum(np.array([r2_lead, r3_lead, r4_lead, r5_lead, r6_lead]))
+    result = np.array([r2_lead, r3_lead, r4_lead, r5_lead, r6_lead], dtype=np.int64)
 
     if verbose:
         print("Starting hands:\n", dealt_hands)
-        print("Trick 1:\n", trick_played(dealt_hands, r2_hand),
-        print("Trick 1 winner:", r2_lead))
+        print("Trick 1:\n", trick_played(dealt_hands, r2_hand))
+        print("Trick 1 winner:", r2_lead)
         print("next round hands:\n", r2_hand)
 
         print("Trick 2:", trick_played(r2_hand, r3_hand))
