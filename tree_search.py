@@ -5,26 +5,52 @@ from typing import Callable
 import warnings
 
 @njit
-def declare_winner(winners: np.ndarray):
+def resulting_score(winners: np.ndarray, caller: int):
     """
-    Determines which team won based on trick winners.
+    Calculates the score for the calling team based on trick winners in a Euchre round.
     
-    Arguments:
-        winners (np.ndarray): 1D array of 5 player indices indicating who won each trick.
-                              Example: [1, 2, 1, 0, 3]
-        
+    In Euchre, teams are divided into even players (0, 2) and odd players (1, 3).
+    The caller is the player who named the trump suit. The calling team wins if they take
+    at least 3 tricks. If they take all 5 tricks, it's a "march" or sweep worth extra points.
+    If the opposing team takes 3 or more tricks, the calling team is "euchred" and loses points.
+    
+    Args:
+        winners (np.ndarray): 1D array of 5 integers, each indicating the player (0-3) who won
+                              the corresponding trick. Example: np.array([1, 2, 1, 0, 3])
+        caller (int): The index of the player who called trump (0-3).
+    
     Returns:
-        int: 0 if odd team (positions 1, 3) won, 1 if even team (positions 0, 2) won
+        int: The score for the calling team.
+             - 1: Calling team won (took 3+ tricks).
+             - 2: Calling team won with a march (took all 5 tricks).
+             - -2: Calling team lost (euchred, opposing team took 3+ tricks).
     """
     # Count wins for odd-numbered players (team 1)
     total_odd_wins = np.sum(winners % 2)
     
     # Odd team wins if they get 3+ tricks out of 5 total
-    if total_odd_wins >= 3:
-        score = 0  # Odd team (1, 3) won
-    else: 
-        score = 1  # Even team (0, 2) won
-    
+
+    if caller % 2 == 1:  # If caller is on the odd team, they need 3 wins to win
+
+        if total_odd_wins >= 3 and total_odd_wins < 5:
+            score = 1  # Odd team (1, 3) won
+
+        elif total_odd_wins == 5:
+            score = 2  # Odd team (1, 3) got a sweep (5 wins)
+
+        else:
+            score = -2  # Even team (0, 2) won, odd team gets echued
+
+    if caller % 2 == 0:  # If caller is on the even team, they need 3 wins to win
+        if total_odd_wins >= 1 and total_odd_wins < 3:
+            score = 1  # Even team (0, 2) won
+
+        elif total_odd_wins == 0:
+            score = 2  # Even team (0, 2) got a sweep (5 wins)
+
+        else:
+            score = -2  # Odd team (1, 3) won, even team gets echued
+
     return score
 
 @njit
@@ -32,6 +58,7 @@ def n_trick_sim(
     game_hand: np.ndarray, 
     r1_chosen_card: np.ndarray, 
     lead: int,
+    caller: int,
     num_tricks: int = 5,
     previous_winners: np.ndarray = np.array([], dtype=np.int64)
 ):
@@ -139,14 +166,7 @@ def n_trick_sim(
         total_odd_wins = np.sum(results[i] % 2)
         
         # Add previous winners to the count
-        if len(previous_winners) > 0:
-            total_odd_wins += np.sum(previous_winners % 2)
-        
-        # Team wins if they get 3+ tricks out of 5 total
-        if total_odd_wins >= 3:
-            score = 0
-        else: 
-            score = 1
+        score = resulting_score(total_odd_wins, caller)  # Get score based on total wins and caller
 
         meta_results[i] = score
 
