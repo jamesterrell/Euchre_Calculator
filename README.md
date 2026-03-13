@@ -1,116 +1,186 @@
 
-# Euchre Simulation
+# Euchre Calculator
 
-This project simulates a Euchre game to calculate the odds that a player's hand will result in a win, evaluating multiple rounds and factoring in trump cards, suit matching, and basic strategy. It can help Euchre players identify when to "order up" trump or when to pass. 
+An advanced Euchre game simulator that uses tree search algorithms to determine optimal play and calculate win probabilities. This tool helps Euchre players make strategic decisions by simulating all possible game outcomes assuming perfect play by all participants.
 
-## Features
+## Overview
 
-- **Card Representation:** Cards are represented as vectors with suits and values encoded in 2D space.
-- **Trump Mechanics:** Spades are always considered trump.
-- **Round Simulation:** Multiple rounds are simulated to assess different strategies.
-- **Hand Evaluation:** The program filters possible actions based on the player's hand and the game state.
-- **Meta-Simulation:** A broader simulation evaluates winning chances over many hands.
+Euchre is a trick-taking card game where strategy revolves around bidding (calling trump) and playing cards optimally. This simulator models the game using:
 
-## Vector Representation of Euchre Deck
+- **Vector-based card representation** for efficient computation
+- **Tree search algorithms** to explore all possible plays
+- **Optimal strategy simulation** assuming perfect play by all players
+- **Probability calculations** with statistical confidence intervals
+
+## Card Representation
+
+Cards are represented as 2D vectors for computational efficiency:
+
 ```python
-import numpy as np
+# Suit encoding:
+# Hearts: negative x-axis [-14, 0] to [-9, 0] (Ace to 9)
+# Diamonds: positive x-axis [9, 0] to [14, 0] (9 to Ace)
+# Clubs: negative y-axis [0, -14] to [0, -9] (Ace to 9)
+# Spades (Trump): positive y-axis [0, 90] to [0, 140] (9 to right bower)
 
-"""
-Card suit representations:
-- Hearts: negative x-axis coordinates
-- Diamonds: positive x-axis coordinates
-- Spades: positive y-axis coordinates
-- Clubs: negative y-axis coordinates
-
-For the purposes of this program, Spades is always considered trump, 
-which is why it is assigned a higher value.
-"""
-full_euchre_deck = np.array(
-    [
-        [-9, 0],    # 9 of hearts
-        [-10, 0],   # 10 of hearts
-        [-11, 0],   # Jack of hearts
-        [-12, 0],   # Queen of hearts
-        [-13, 0],   # King of hearts
-        [-14, 0],   # Ace of Hearts
-        [0, -9],    # 9 of clubs
-        [0, -10],   # 10 of clubs
-        [0, -12],   # Queen of clubs
-        [0, -13],   # King of clubs
-        [0, -14],   # Ace of clubs (No Jack because it is the left bower)
-        [9, 0],     # 9 of diamonds
-        [10, 0],    # 10 of diamons
-        [11, 0],    # Jack of diamonds
-        [12, 0],    # Queen of diamonds
-        [13, 0],    # King of diamonds
-        [14, 0],    # Ace of diamonds
-        [0, 90],    # 9 of spades (trump)
-        [0, 100],   # 10 of spades (trump)
-        [0, 110],   # Queen of spades (trump)
-        [0, 120],   # King of spades (trump)
-        [0, 130],   # Ace of spades (trump)
-        [0, 135],   # left bower  (Jack of clubs)
-        [0, 140],   # right bower (Jack of spades)
-    ]
-)
+# Example cards:
+[-14, 0]   # Ace of hearts
+[14, 0]    # Ace of diamonds
+[0, -14]   # Ace of clubs
+[0, 140]   # Right bower (Jack of spades - highest trump)
+[0, 135]   # Left bower (Jack of clubs - second highest trump)
 ```
-## File Structure
 
-- `deck.py`: Contains the card definitions and the game logic related to the deck (e.g., defining suits and ranks).
-- `n_play_round.py`: Implements the logic for simulating a single round of the game, including determining card play for each player based on their hand.
-- `n_branches.py`: Defines functions for generating possible game branches and applying common sense strategies.
-- `meta_game.py`: Simulates a meta-game, where multiple hands are evaluated to determine the probability of a win for a given player.
+This representation naturally captures suit relationships and trump hierarchy, with spades always designated as trump.
 
-## Key Functions
+## Installation
 
-### `n_play_round(hands, lead, card_play)`
-Simulates a round of Euchre based on the current hands and the card played by the lead player. It evaluates possible tricks, applies basic strategy functions (e.g., `common_sense`, `smart_loss`), and returns the possible outcomes (branches) for the round.
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/yourusername/euchre-calculator.git
+   cd euchre-calculator
+   ```
 
-### `round1(hands_dealt)`
-Simulates the first round of the game and calculates the possible outcomes for each card played by the lead player. It evaluates multiple branches, updating the hand configuration after each card is played.
+2. **Install dependencies:**
+   ```bash
+   pip install numpy numba jupyter
+   ```
 
-### `next_round(current_hands, leads, game_round, game_score)`
-Simulates the next round of the game, taking into account the current hands, leads, and the score. It calculates the possible outcomes for the round and updates the game state accordingly.
+3. **Launch the interactive interface:**
+   ```bash
+   jupyter notebook interface.ipynb
+   ```
 
-### `n_game_sim(game_hand, eval_position)`
-Simulates the entire game based on a given array of four hands, evaluating the odds of winning for a specific player (identified by `eval_position`). It performs multiple rounds of simulation and computes the result based on the strategies and game rules.
+## Quick Start
 
-### `meta_game_sim(meta_hands, eval_position)`
-Simulates a meta-game by running multiple simulations of a given hand configuration. It evaluates the probability of winning for a specific player by averaging the results of the individual simulations.
-### Dependencies
-- `NumPy` for numerical operations.
-- `Numba` for performance optimization (parallel processing).
-
-## Usage
-
-1. **Simulate a Game:** Use `n_game_sim` to simulate a single game and calculate the win probability for a given hand.
-2. **Meta-Simulation:** Use `meta_game_sim` to simulate multiple hands and evaluate the average win probability.
-
-### Example:
+### Basic Simulation
 
 ```python
 from deck import full_euchre_deck
 from dealer import Dealer
-from n_game_sim import meta_game_sim
+from tree_search import definitive_winner
 import numpy as np
 
-evaluate = np.array([[0, 140], [0, 130], [0, 135], [0, -9], [9, 0]])
-meta_hands = np.zeros(shape=(100, 4, 5, 2), dtype=np.int64)
-for i in range(100):    
-    game = Dealer(deck=full_euchre_deck ,players=4)
-    game.stack_deck(stack_cards=evaluate, player=1)
-    game.deal_cards()
-    hands5 = np.array([game.hand1, game.hand2, game.hand3, game.hand4])
-    meta_hands[i] = hands5
+# Create a dealer and deal random hands
+dealer = Dealer(deck=full_euchre_deck, players=4)
+dealer.deal_cards()
+hands = np.array([dealer.hand1, dealer.hand2, dealer.hand3, dealer.hand4])
 
-# a simple example that results in a 100% win rate
-meta_game_sim(meta_hands=meta_hands, eval_position=0)
+# Simulate optimal play assuming player 0 called trump
+score = definitive_winner(
+    dealt_hands=hands,
+    starting_player=0,  # Player 0 leads first trick
+    caller=0,          # Player 0 called trump
+    verbose=True        # Show detailed play-by-play
+)
 
->>> 1.0
+print(f"Final score for calling team: {score}")
+# Output: Final score for calling team: 2 (sweep), 1 (win), -2 (euchred)
 ```
+
+### Probability Analysis with Stacked Hands
+
+```python
+from n_game_sim import generate_hands
+from tree_search import definitive_winner
+
+# Define a strong hand for analysis
+strong_hand = np.array([
+    [0, 140],  # Right bower
+    [0, 135],  # Left bower
+    [0, -9],   # 9 of clubs
+    [-9, 0],   # 9 of hearts
+    [9, 0]     # 9 of diamonds
+])
+
+upcard = np.array([[0, 90]])  # 9 of spades as upcard
+
+# Generate 500 random games with your hand stacked
+test_games = generate_hands(
+    n_games=500,
+    stack=strong_hand,
+    stack_player=1,      # You are player 1
+    up_card=upcard,
+    up_card_player=2     # Upcard to player 2
+)
+
+# Run simulations
+scores = np.zeros(500, dtype=np.int64)
+for i in range(500):
+    scores[i] = definitive_winner(
+        dealt_hands=test_games[i],
+        starting_player=3,  # Player 3 leads (after upcard pickup)
+        caller=0,          # Player 0 called trump
+        verbose=False
+    )
+
+# Calculate expected value and confidence interval
+mean_score = np.mean(scores)
+std_error = np.std(scores, ddof=1) / np.sqrt(len(scores))
+ci_lower = mean_score - 1.96 * std_error
+ci_upper = mean_score + 1.96 * std_error
+
+print(f"Expected score: {mean_score:.3f}")
+print(f"95% Confidence Interval: [{ci_lower:.3f}, {ci_upper:.3f}]")
+```
+
+## Core Algorithm
+
+The simulator uses a **tree search approach** to determine definitive winners:
+
+1. **Opening Move Selection**: For each possible lead card, evaluate outcomes
+2. **Response Optimization**: Each player responds optimally for their team
+3. **Recursive Simulation**: Continue until all 5 tricks are played
+4. **Score Calculation**: Determine final game outcome
+
+### Key Functions
+
+- **`definitive_winner()`**: Main simulation function returning final score
+- **`find_best_opener()`**: Determines optimal opening card for current player
+- **`find_best_response()`**: Simulates optimal responses from other players
+- **`generate_hands()`**: Creates multiple random hand configurations
+
+## Scoring System
+
+- **+2**: Calling team takes all 5 tricks (march/sweep)
+- **+1**: Calling team takes 3-4 tricks
+- **-2**: Calling team takes 0-2 tricks (gets euchred)
+
+## Project Structure
+
+```
+├── README.md                 # This file
+├── deck.py                   # Card definitions and vector representations
+├── dealer.py                 # Card dealing and hand management
+├── tree_search.py            # Core tree search algorithms
+├── n_play_round.py           # Single round simulation logic
+├── n_branches.py             # Branch generation and filtering
+├── n_game_sim.py             # Hand generation utilities
+├── interface.ipynb           # Interactive Jupyter notebook
+└── legacy_approach/          # Previous implementations
+    ├── bit_string_approach.ipynb
+    ├── branch_calc.py
+    ├── play_round.py
+    ├── sim_game_list_comp.py
+    └── sim_game.py
+```
+
+
+## Applications
+
+- **Learning Tool**: Understand optimal Euchre strategy
+- **Decision Support**: Evaluate bidding decisions
+- **Hand Analysis**: Assess strength of specific card combinations
+- **Game Theory**: Study Nash equilibria in trick-taking games
+
+## Dependencies
+
+- **NumPy**: Numerical computing and array operations
+- **Numba**: Just-in-time compilation for performance
+- **Jupyter**: Interactive notebook environment (optional)
 
 ## License
 
-MIT License
+MIT License - see LICENSE file for details
 
 
