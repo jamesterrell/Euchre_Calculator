@@ -21,6 +21,6 @@ def generate_hands(
         if up_card is not None:
             game.stack_deck(stack_cards=up_card, player=up_card_player)
         game.deal_cards()
-        all_hands[i] = np.array([game.hand1, game.hand2, game.hand3, game.hand4])
+        all_hands[i] = np.array([game.hand0, game.hand1, game.hand2, game.hand3])
 
     return all_hands

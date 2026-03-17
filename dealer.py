@@ -21,7 +21,7 @@ class Dealer:
         Initializes the dealer with empty hands for each player after the class is instantiated.
         """
         self.hands = {}
-        for i in range(1, 5):
+        for i in range(4):
             self.hands[f"hand{i}"] = []
 
     def stack_deck(self, stack_cards: np.array, player: int):
