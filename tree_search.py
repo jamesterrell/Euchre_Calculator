@@ -92,20 +92,29 @@ def n_trick_sim(
         results = r2_leads.reshape(-1, 1)
     
     elif num_tricks == 2:
+        # padded score fixes a weird memory issue where the score array gets messed up when simulating fewer than 5 rounds.
+        padded_score = np.zeros((r2_leads.shape[0], 4, 1), dtype=np.int64)
+        padded_score[:, 0, 0] = r2_leads
         r3_leads, r3_hands, r3_score = next_round(
             current_hands=r2_hands,
             leads=r2_leads,
             game_round=5,
-            game_score=r2_leads.reshape(-1, 1)
+            game_score=padded_score
         )
         results = r3_score.reshape(r3_score.shape[0], 5)
+        # print("r3_score.shape:", r3_score.shape)
+        # print("r3_score:", r3_score)
+        # print("results:",results)
     
     elif num_tricks == 3:
+        # padded score fixes a weird memory issue where the score array gets messed up when simulating fewer than 5 rounds.
+        padded_score = np.zeros((r2_leads.shape[0], 3, 1), dtype=np.int64)
+        padded_score[:, 0, 0] = r2_leads
         r3_leads, r3_hands, r3_score = next_round(
             current_hands=r2_hands,
             leads=r2_leads,
             game_round=4,
-            game_score=r2_leads.reshape(-1, 1)
+            game_score=padded_score
         )
         r4_leads, r4_hands, r4_score = next_round(
             current_hands=r3_hands,
@@ -116,11 +125,14 @@ def n_trick_sim(
         results = r4_score.reshape(r4_score.shape[0], 5)
     
     elif num_tricks == 4:
+        # padded score fixes a weird memory issue where the score array gets messed up when simulating fewer than 5 rounds.
+        padded_score = np.zeros((r2_leads.shape[0], 2, 1), dtype=np.int64)
+        padded_score[:, 0, 0] = r2_leads
         r3_leads, r3_hands, r3_score = next_round(
             current_hands=r2_hands,
             leads=r2_leads,
             game_round=3,
-            game_score=r2_leads.reshape(-1, 1)
+            game_score=padded_score
         )
         r4_leads, r4_hands, r4_score = next_round(
             current_hands=r3_hands,
@@ -586,7 +598,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         lead=r4_lead,
         hands=r4_hand,
         tricks=2,
-        previous_winners=np.array([r2_lead, r3_lead, r4_lead]),
+        previous_winners=np.array([r2_lead, r3_lead, r4_lead], dtype=np.int64),
         sim_func=n_trick_sim,
         verbose=verbose,
         caller=caller,
@@ -607,7 +619,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         lead=r5_lead,
         hands=r5_hand,
         tricks=1,
-        previous_winners=np.array([r2_lead, r3_lead, r4_lead, r5_lead]),
+        previous_winners=np.array([r2_lead, r3_lead, r4_lead, r5_lead], dtype=np.int64),
         sim_func=n_trick_sim,
         verbose=verbose,
         caller=caller,
