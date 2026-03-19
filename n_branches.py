@@ -103,27 +103,29 @@ def suit_id(vector):
 @njit
 def nfb_by_hand(branch, hand, target):
     """
-    Filters a set of card branches by matching conditions for a specific hand and target vector.
-
+    Filters branches to enforce the "follow suit" rule in Euchre.
+    
+    Keeps only branches where the specified player plays a card matching the 
+    suit of the target (lead) card. If the player cannot follow suit (has no 
+    cards in that suit), all branches are returned unchanged.
+    
     Args:
-        branch (np.ndarray): A 3D array of shape (m, 4, 2), where:
-            - `m` is the number of branches (sets of potential card combinations).
-            - The second dimension represents the four players (hands).
-            - The third dimension (size 2) represents the x and y components of the card's vector.
-        hand (int): The index of the player's hand to evaluate (0 through 3).
-        target (tuple): A 2D vector `(x, y)` specifying the conditions to filter by:
-            - `(0, y > 0)` filters for cards with `x == 0` and `y > 0`.
-            - `(0, y < 0)` filters for cards with `x == 0` and `y < 0`.
-            - `(x > 0, 0)` filters for cards with `x > 0` and `y == 0`.
-            - `(x < 0, 0)` filters for cards with `x < 0` and `y == 0`.
-
+        branch (np.ndarray): A 3D array of shape (n_branches, 4, 2) representing 
+            possible card plays:
+            - n_branches: number of possible game states
+            - 4: the four players (hands 0-3)
+            - 2: card vector coordinates (x, y)
+        hand (int): The player index (0-3) whose play is being filtered.
+        target (np.ndarray): A 2D vector [x, y] representing the lead card, where:
+            - Hearts: [x < 0, 0] (negative x-axis)
+            - Diamonds: [x > 0, 0] (positive x-axis)
+            - Clubs: [0, y < 0] (negative y-axis)
+            - Spades/Trump: [0, y > 0] (positive y-axis)
+    
     Returns:
-        np.ndarray: A filtered 3D array of branches that meet the target conditions.
-        If no branches match, the original `branch` array is returned unchanged.
-
-     Notes:
-        - The function applies conditions based on the vector representation of cards in a given hand.
-        - The mask ensures that only branches satisfying the `target` criteria are retained.
+        np.ndarray: Filtered branches where the player follows suit. If the player 
+            has no cards in the target suit, returns the original branch array 
+            unfiltered (all plays are valid when you can't follow suit).
     """
 
     # realistically I could refactor this to use suit_id. This just works and is easy to read.
@@ -375,16 +377,15 @@ def smart_loss(branch, target, player):
         for i in range(num_branches):
             store_vals[i] = np.linalg.norm(branch[i, player].astype(np.float64))
 
-        # Find worst card index
-        worst_card_ind = np.argmin(store_vals)
+        # Find the minimum value
+        min_val = np.min(store_vals)
 
-        # Find branches with the worst card
+        # Keep all branches that have cards equal to the minimum value
         smart_loss_bools = np.zeros(num_branches, dtype=np.int8)
-        worst_card_val = np.linalg.norm(store_cards[worst_card_ind].astype(np.float64))
-
         for i in range(num_branches):
-            branch_val = np.linalg.norm(store_cards[i].astype(np.float64))
-            smart_loss_bools[i] = np.isclose(branch_val, worst_card_val)
+            smart_loss_bools[i] = np.isclose(store_vals[i], min_val)
+
+        return branch[smart_loss_bools == 1]
 
         # Return filtered branches
         return branch[smart_loss_bools == 1]

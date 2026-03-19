@@ -92,20 +92,29 @@ def n_trick_sim(
         results = r2_leads.reshape(-1, 1)
     
     elif num_tricks == 2:
+        # padded score fixes a weird memory issue where the score array gets messed up when simulating fewer than 5 rounds.
+        padded_score = np.zeros((r2_leads.shape[0], 4, 1), dtype=np.int64)
+        padded_score[:, 0, 0] = r2_leads
         r3_leads, r3_hands, r3_score = next_round(
             current_hands=r2_hands,
             leads=r2_leads,
             game_round=5,
-            game_score=r2_leads.reshape(-1, 1)
+            game_score=padded_score
         )
         results = r3_score.reshape(r3_score.shape[0], 5)
+        # print("r3_score.shape:", r3_score.shape)
+        # print("r3_score:", r3_score)
+        # print("results:",results)
     
     elif num_tricks == 3:
+        # padded score fixes a weird memory issue where the score array gets messed up when simulating fewer than 5 rounds.
+        padded_score = np.zeros((r2_leads.shape[0], 3, 1), dtype=np.int64)
+        padded_score[:, 0, 0] = r2_leads
         r3_leads, r3_hands, r3_score = next_round(
             current_hands=r2_hands,
             leads=r2_leads,
             game_round=4,
-            game_score=r2_leads.reshape(-1, 1)
+            game_score=padded_score
         )
         r4_leads, r4_hands, r4_score = next_round(
             current_hands=r3_hands,
@@ -116,11 +125,14 @@ def n_trick_sim(
         results = r4_score.reshape(r4_score.shape[0], 5)
     
     elif num_tricks == 4:
+        # padded score fixes a weird memory issue where the score array gets messed up when simulating fewer than 5 rounds.
+        padded_score = np.zeros((r2_leads.shape[0], 2, 1), dtype=np.int64)
+        padded_score[:, 0, 0] = r2_leads
         r3_leads, r3_hands, r3_score = next_round(
             current_hands=r2_hands,
             leads=r2_leads,
             game_round=3,
-            game_score=r2_leads.reshape(-1, 1)
+            game_score=padded_score
         )
         r4_leads, r4_hands, r4_score = next_round(
             current_hands=r3_hands,
@@ -180,6 +192,35 @@ def n_trick_sim(
 def find_best_opener(
     hands: np.ndarray, lead: int, caller: int, tricks: int, previous_winners: np.array, sim_func: Callable, verbose: bool
 ):
+    """
+    Determines the optimal opening card for the lead player to play.
+    
+    Simulates all possible opening card choices and selects the one that produces
+    the best outcome for the lead player's team, assuming perfect play by all 
+    players in subsequent tricks.
+    
+    Args:
+        hands (np.ndarray): A 3D array of shape (4, n_cards, 2) representing the 
+            current hands of all four players, where n_cards is the number of 
+            cards remaining in each hand.
+        lead (int): The player index (0-3) who leads this trick.
+        caller (int): The player index (0-3) who called trump. Used to determine
+            team alignment (players 0&2 vs 1&3).
+        tricks (int): The number of cards remaining in each player's hand (equivalent
+            to tricks left to play).
+        previous_winners (np.array): Array of player indices who won previous tricks
+            in this hand. Used to track game state.
+        sim_func (Callable): Simulation function that evaluates the expected score
+            for a given opening card choice. Should return a numeric score.
+        verbose (bool): If True, prints the winning score for each possible opening
+            card choice.
+    
+    Returns:
+        int: The index (0 to tricks-1) of the best card to play from the lead 
+            player's hand. This is the card that maximizes score for the calling
+            team or minimizes score for the defending team.
+    """
+
     winning_score = np.zeros(tricks)
     for i in range(tricks):
         winning_score[i] = sim_func(
@@ -201,6 +242,25 @@ def find_best_opener(
 
 @njit
 def trick_played(arr1, arr2):
+    """
+    Identifies which cards were played in a trick by finding the set difference
+    between two hand states.
+    
+    Compares the cards in arr1 (hands before the trick) with arr2 (hands after 
+    the trick) to determine which cards are no longer present, i.e., which cards
+    were played during the trick.
+    
+    Args:
+        arr1 (np.ndarray): Array of cards before the trick was played. Can be any
+            shape, but the last dimension must be 2 (card vector [x, y]).
+        arr2 (np.ndarray): Array of cards after the trick was played. Same shape
+            requirements as arr1.
+    
+    Returns:
+        np.ndarray: A 2D array of shape (n_played, 2) containing the cards that
+            were present in arr1 but are missing from arr2. These are the cards
+            that were played in the trick.
+    """
     # Flatten both arrays to shape (N, 2)
     flat1 = arr1.reshape(-1, arr1.shape[-1])
     flat2 = arr2.reshape(-1, arr2.shape[-1])
@@ -346,23 +406,6 @@ def player_best_prune(
         # Calculate meta results
         meta_results = np.zeros(results.shape[0], dtype=np.int64)
 
-        # for i in range(len(results)):
-        #     # Count wins for odd-numbered players (team 1)
-        #     total_odd_wins = np.sum(results[i] % 2)
-
-        #     # Add previous winners to the count
-        #     if len(previous_winners) > 0:
-        #         total_odd_wins += np.sum(previous_winners % 2)
-
-        #     # Team wins if they get 3+ tricks out of 5 total
-        #     if total_odd_wins >= 3:
-        #         score = 0
-        #     else:
-        #         score = 1
-
-        #     meta_results[i] = score
-
-
         for i in range(len(results)):
         # Count wins for odd-numbered players (team 1)
         
@@ -395,6 +438,34 @@ def find_best_response(
     best_opener: int,
     caller: int
 ):
+    """
+    Simulates optimal responses from all players after the lead card is played.
+    
+    Sequentially determines the best card play for each of the three responding
+    players (in turn order), pruning suboptimal branches after each player's
+    decision. This reduces the game tree to a single optimal path assuming
+    perfect play by all participants.
+    
+    Args:
+        lead (int): The player index (0-3) who led the trick with the opening card.
+        hands (np.ndarray): A 3D array of shape (4, n_cards, 2) representing the
+            current hands of all four players before any cards are played.
+        tricks (int): The number of cards remaining in each player's hand (tricks
+            left to play).
+        previous_winners (np.ndarray): Array of player indices who won previous
+            tricks in this hand.
+        best_opener (int): The index of the optimal opening card that the lead
+            player will play (determined by find_best_opener).
+        caller (int): The player index (0-3) who called trump, used to determine
+            team alignment for optimal play decisions.
+    
+    Returns:
+        tuple: A tuple containing:
+            - pruned_hand (np.ndarray): The single remaining hand state after all
+              three responses, representing the optimal continuation of play.
+            - pruned_lead (np.ndarray): Array containing the winner of this trick
+    """
+    
     pr1, pr1_leads = player_best_prune(
         player=(lead + 1) % 4,
         first_response=True,
@@ -439,7 +510,29 @@ def find_best_response(
 
 
 def definitive_winner(dealt_hands, starting_player, caller, verbose):
-
+    """
+    Simulates a complete Euchre hand with perfect play and returns the final score.
+    
+    Uses tree search with optimal play assumptions to determine the definitive
+    outcome when all players play their best possible cards. Recursively evaluates
+    all five tricks, pruning suboptimal branches at each decision point.
+    
+    Args:
+        dealt_hands (np.ndarray): A 3D array of shape (4, 5, 2) representing the
+            initial dealt hands for all four players, where each player has 5 cards
+            represented as [x, y] vectors.
+        starting_player (int): The player index (0-3) who leads the first trick.
+        caller (int): The player index (0-3) who called trump. Determines team
+            alignment (caller + partner vs opponents).
+        verbose (bool, optional): If True, prints detailed play-by-play information
+            including tricks played, winners, and intermediate scores. Default False.
+    
+    Returns:
+        int: The final score for the calling team:
+            - +2: Calling team takes all 5 tricks (march/sweep)
+            - +1: Calling team takes 3-4 tricks (win)
+            - -2: Calling team takes 0-2 tricks (euchred)
+    """
     # round 1
     best_opener = find_best_opener(
         lead=starting_player,
@@ -505,7 +598,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         lead=r4_lead,
         hands=r4_hand,
         tricks=2,
-        previous_winners=np.array([r2_lead, r3_lead, r4_lead]),
+        previous_winners=np.array([r2_lead, r3_lead, r4_lead], dtype=np.int64),
         sim_func=n_trick_sim,
         verbose=verbose,
         caller=caller,
@@ -526,7 +619,7 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
         lead=r5_lead,
         hands=r5_hand,
         tricks=1,
-        previous_winners=np.array([r2_lead, r3_lead, r4_lead, r5_lead]),
+        previous_winners=np.array([r2_lead, r3_lead, r4_lead, r5_lead], dtype=np.int64),
         sim_func=n_trick_sim,
         verbose=verbose,
         caller=caller,
@@ -569,10 +662,3 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose):
     final_score = resulting_score(result, caller)
 
     return final_score
-
-
-    # if result >= 3:
-    #     return 0 
-    # else:        
-    #     return 1
-    

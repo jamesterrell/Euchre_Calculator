@@ -1,75 +1,26 @@
-from n_play_round import round1, next_round
-from numba import njit
 import numpy as np
+from dealer import Dealer
+from deck import full_euchre_deck
 
 # might not need this anymore, but keeping it for now just in case.
 
-@njit
-def n_game_sim(game_hand: np.ndarray, eval_position: int, r1_chosen_card: np.ndarray, lead: int):
-    """
-    Simulates a full game using the provided hands and evaluates the outcome based on
-    a specified player's position. The function runs five rounds of play, tracking the
-    results and calculating the final score based on the player's performance. It then
-    returns the expected value of the hand based on the scored outcomes.
+def generate_hands(
+    n_games=100,
+    stack: np.array = None,
+    stack_player: int = None,
+    up_card: np.array = None,
+    up_card_player: int = None,
+):
+    """Generate n random hand configurations."""
+    all_hands = np.zeros((n_games, 4, 5, 2), dtype=np.int64)
 
-    Arguments:
-        game_hand (numpy.ndarray): A 3D array representing the cards dealt to each player.
-        eval_position (int): The index of the player whose cards are being evaluated.
+    for i in range(n_games):
+        game = Dealer(deck=full_euchre_deck, players=4)
+        if stack is not None:
+            game.stack_deck(stack_cards=stack, player=stack_player)
+        if up_card is not None:
+            game.stack_deck(stack_cards=up_card, player=up_card_player)
+        game.deal_cards()
+        all_hands[i] = np.array([game.hand0, game.hand1, game.hand2, game.hand3])
 
-    Returns:
-        float: The mean performance evaluation for the specified player, indicating the
-        proportion of games where the player's performance exceeds a threshold.
-    """
-    r2_leads, r2_hands = round1(
-        hands_dealt=game_hand, chosen_card=r1_chosen_card, leader=lead
-    )
-
-    r3_leads, r3_hands, r2_score = next_round(
-        current_hands=r2_hands,
-        leads=r2_leads,
-        game_round=2,
-        game_score=r2_leads.reshape(-1, 1),
-    )
-    r4_leads, r4_hands, r3_score = next_round(
-        current_hands=r3_hands, leads=r3_leads, game_round=3, game_score=r2_score
-    )
-    r5_leads, r5_hands, r4_score = next_round(
-        current_hands=r4_hands, leads=r4_leads, game_round=4, game_score=r3_score
-    )
-    r6_leads, r6_hands, r5_score = next_round(
-        current_hands=r5_hands, leads=r5_leads, game_round=5, game_score=r4_score
-    )
-    results = r5_score.reshape(r5_score.shape[0], 5)
-
-    meta_results = np.zeros(results.shape[0], dtype=np.int64)
-
-    if eval_position % 2 == 0:
-        for i in range(len(results)):
-            meta_results[i] = np.sum(results[i] % 2) < 3
-    else:
-        for i in range(len(results)):
-            meta_results[i] = np.sum(results[i] % 2) >= 3
-
-    return np.mean(meta_results)
-
-
-@njit(parallel=True, fastmath=True)
-def meta_game_sim(meta_hands: list, eval_position):
-    """
-    Simulates a series of full games using the provided hands and evaluates the performance
-    of a specified player across all games. The function runs multiple simulations of `n_game_sim`,
-    calculating the expected value of the specified player's hand.
-
-    Arguments:
-        meta_hands (list): A list of 3D arrays, each representing a set of cards dealt to each player.
-        eval_position (int): The index of the player whose performance is being evaluated.
-
-    Returns:
-        float: The mean score across all games, indicating the expected value of the specified player's hand.
-    """
-    meta_results = np.zeros(len(meta_hands), dtype=np.int64)
-    for i in range(len(meta_hands)):
-        res = n_game_sim(game_hand=meta_hands[i], eval_position=eval_position, r1_chosen_card=i)
-        meta_results[i] = res
-
-    return np.mean(meta_results)
+    return all_hands
