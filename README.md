@@ -58,13 +58,13 @@ This representation naturally captures suit relationships and trump hierarchy, w
 ```python
 from deck import full_euchre_deck
 from dealer import Dealer
-from tree_search import definitive_winner
+from fast_search import definitive_winner
 import numpy as np
 
 # Create a dealer and deal random hands
 dealer = Dealer(deck=full_euchre_deck, players=4)
 dealer.deal_cards()
-hands = np.array([dealer.hand1, dealer.hand2, dealer.hand3, dealer.hand4])
+hands = np.array([dealer.hand0, dealer.hand1, dealer.hand2, dealer.hand3])
 
 # Simulate optimal play assuming player 0 called trump
 score = definitive_winner(
@@ -82,7 +82,7 @@ print(f"Final score for calling team: {score}")
 
 ```python
 from n_game_sim import generate_hands
-from tree_search import definitive_winner
+from fast_search import definitive_winner
 
 # Define a strong hand for analysis
 strong_hand = np.array([
@@ -126,19 +126,24 @@ print(f"95% Confidence Interval: [{ci_lower:.3f}, {ci_upper:.3f}]")
 
 ## Core Algorithm
 
-The simulator uses a **tree search approach** to determine definitive winners:
+`fast_search.py` walks the game tree once, depth first, and prunes with
+alpha-beta:
 
-1. **Opening Move Selection**: For each possible lead card, evaluate outcomes
-2. **Response Optimization**: Each player responds optimally for their team
-3. **Recursive Simulation**: Continue until all 5 tricks are played
-4. **Score Calculation**: Determine final game outcome
+1. **Move generation enforces legality**: follow the led suit if you can, and
+   nothing else is restricted -- all strategy comes out of the minimax
+2. **Minimax by parity**: a player maximises when they are on the calling team
+   and minimises otherwise
+3. **Alpha-beta pruning**: exact, not approximate -- it skips only branches that
+   cannot change the value
+4. **Forced-outcome cutoffs**: at a trick boundary, stop once the calling team
+   can no longer reach 3 tricks, or has 3 with a march already impossible
 
 ### Key Functions
 
-- **`definitive_winner()`**: Main simulation function returning final score
-- **`find_best_opener()`**: Determines optimal opening card for current player
-- **`find_best_response()`**: Simulates optimal responses from other players
-- **`generate_hands()`**: Creates multiple random hand configurations
+- **`definitive_winner()`**: main entry point, returns the calling team's score
+- **`solve()`**: the score plus the number of nodes visited
+- **`solve_line()`**: the score plus one optimal line of play
+- **`generate_hands()`**: creates multiple random hand configurations
 
 ## Scoring System
 
@@ -152,18 +157,35 @@ The simulator uses a **tree search approach** to determine definitive winners:
 ├── README.md                 # This file
 ├── deck.py                   # Card definitions and vector representations
 ├── dealer.py                 # Card dealing and hand management
-├── tree_search.py            # Core tree search algorithms
-├── n_play_round.py           # Single round simulation logic
-├── n_branches.py             # Branch generation and filtering
 ├── n_game_sim.py             # Hand generation utilities
+├── fast_search.py            # The solver: depth-first alpha-beta
+├── reference_solver.py       # Independent pure-Python solver, used by the tests
 ├── interface.ipynb           # Interactive Jupyter notebook
-└── legacy_approach/          # Previous implementations
-    ├── bit_string_approach.ipynb
-    ├── branch_calc.py
-    ├── play_round.py
-    ├── sim_game_list_comp.py
-    └── sim_game.py
+├── tests/                    # Test suite
+│   ├── euchre_testkit.py     # Fixtures and independent rule oracles
+│   ├── test_deck.py          # Card encoding
+│   ├── test_dealer.py        # Shuffling, stacking, dealing
+│   ├── test_n_game_sim.py    # Hand generation
+│   ├── test_reference_solver.py  # The oracle itself
+│   ├── test_solver.py        # fast_search
+│   └── test_fast_search.py   # Randomised regression sweep
+└── archive/                  # Superseded implementations, kept for reference
+    ├── beta_approach/        # Breadth-first filter pipeline (not a minimax)
+    └── legacy_approach/
 ```
+
+## Testing
+
+The tests use only the standard library's `unittest`, so there is nothing extra
+to install.
+
+```bash
+python -m unittest discover             # the full suite, under a minute
+python -m unittest tests.test_solver    # one module
+python tests/test_fast_search.py 2000   # the randomised regression sweep
+```
+
+Run these from the repo root.
 
 
 ## Applications

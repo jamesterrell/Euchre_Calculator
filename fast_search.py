@@ -172,8 +172,28 @@ def _search(suits, strs, n, t_suit, t_str, t_player,
 
 
 @njit
+def _validate(hands, starting_player, caller):
+    """Reject inputs the search cannot handle.
+
+    The hot loop has no bounds checking, so an out-of-range seat indexed
+    straight into the (4,) / (4, 5) state arrays and segfaulted the process.
+    """
+    if hands.shape[0] != 4:
+        raise ValueError("hands must hold exactly 4 players")
+    if hands.shape[1] != _ALL:
+        raise ValueError("each hand must hold exactly 5 cards")
+    if hands.shape[2] != 2:
+        raise ValueError("each card must be a 2-element vector")
+    if starting_player < 0 or starting_player > 3:
+        raise ValueError("starting_player must be in 0..3")
+    if caller < 0 or caller > 3:
+        raise ValueError("caller must be in 0..3")
+
+
+@njit
 def solve(hands, starting_player, caller):
     """Score for the calling team under perfect play. Returns (score, nodes)."""
+    _validate(hands, starting_player, caller)
     suits, strs = encode_hands(hands)
     n = np.full(4, hands.shape[1], dtype=np.int64)
     t_suit = np.zeros((_ALL, 4), dtype=np.int64)
@@ -193,8 +213,9 @@ def solve_line(hands, starting_player, caller):
     Returns (score, play_suit, play_str, play_player, winners); the play_*
     arrays are (tricks, 4), indexed [trick, position within the trick].
     """
+    _validate(hands, starting_player, caller)
     suits, strs = encode_hands(hands)
-    ncards = hands.shape[1]
+    ncards = _ALL
     n = np.full(4, ncards, dtype=np.int64)
     t_suit = np.zeros((ncards, 4), dtype=np.int64)
     t_str = np.zeros((ncards, 4), dtype=np.int64)
@@ -327,6 +348,10 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose=False):
     Returns the calling team's score: +2 march, +1 win, -2 euchred.
     """
     dealt_hands = np.ascontiguousarray(dealt_hands, dtype=np.int64)
+    if dealt_hands.ndim != 3:
+        raise ValueError(
+            "dealt_hands must be shaped (4, 5, 2), got %r" % (dealt_hands.shape,)
+        )
     if not verbose:
         return int(solve(dealt_hands, int(starting_player), int(caller))[0])
 
