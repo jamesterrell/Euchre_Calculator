@@ -10,8 +10,12 @@ fast_search is validated two ways, neither of which trusts tree_search.py:
 
 Run:  python test_fast_search.py [n_hands]
 """
+import os
 import sys
 import time
+
+# Run as a script from anywhere: the live modules are at the repo root.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 
