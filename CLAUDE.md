@@ -75,6 +75,7 @@ search never touches a vector again -- no `np.linalg.norm`, no `arccos`, no
 ```
 deck.py            card constants (already in canonical spades-trump form)
 rotation.py        natural (suit, rank) cards <-> the canonical frame
+game.py            Deal: 4x5 natural cards + up-card + kitty + dealer seat
 dealer.py          Dealer dataclass: shuffle, stack specific cards, deal 4x5
 n_game_sim.py      generate_hands() -> (n_games, 4, 5, 2) batch of dealt hands
 fast_search.py     the solver: depth-first alpha-beta over the game tree
@@ -242,6 +243,28 @@ from rotation import parse_hand, deal_to_engine, HEARTS
 from fast_search import definitive_winner
 definitive_winner(deal_to_engine(hands, HEARTS), starting_player=0, caller=0)
 ```
+
+### The dealt state
+
+`game.Deal` is the deal as a real game has it: four hands of natural cards, the
+up-card, the buried kitty, and the dealer seat. `dealer.py` deals 20 canonical
+vectors and drops the other four -- fine for solving trick-play with trump
+already fixed, but it cannot support bidding, because there is no named up-card
+to order and no dealer to pick up and discard. `game.py` is what bidding will be
+built on; `dealer.py` still backs the existing double-dummy sweep.
+
+`Deal` is frozen, and every transition returns a new one that has been through
+`check()`. The invariant is that all 24 cards are always accounted for --
+hands + buried + the up-card if it is still on the kitty. `dealer.py` shipped a
+card-losing bug twice, so this is asserted rather than assumed.
+
+`deal_around(known_hand=..., seat=..., up_card=...)` is the shape of the
+question the calculator answers: pin what you can see, deal the rest uniformly.
+It is the natural-card replacement for `generate_hands`' `stack` / `up_card`.
+
+Note that `pick_up` keeps `up_card` on record after the dealer takes it, since
+every seat saw it and the bidding depends on that; `picked_up` says whether it
+is in a hand or on the kitty, and `all_cards` reads it accordingly.
 
 ## Repo notes
 

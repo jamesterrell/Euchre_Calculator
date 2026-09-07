@@ -177,6 +177,7 @@ alpha-beta:
 ├── README.md                 # This file
 ├── deck.py                   # Card definitions and vector representations
 ├── rotation.py               # Natural cards <-> the solver's canonical frame
+├── game.py                   # Deal: hands, up-card, kitty, dealer seat
 ├── dealer.py                 # Card dealing and hand management
 ├── n_game_sim.py             # Hand generation utilities
 ├── fast_search.py            # The solver: depth-first alpha-beta
@@ -186,6 +187,7 @@ alpha-beta:
 │   ├── euchre_testkit.py     # Fixtures and independent rule oracles
 │   ├── test_deck.py          # Card encoding
 │   ├── test_rotation.py      # Trump rotation
+│   ├── test_game.py          # Dealing, up-card, pickup and discard
 │   ├── test_dealer.py        # Shuffling, stacking, dealing
 │   ├── test_n_game_sim.py    # Hand generation
 │   ├── test_reference_solver.py  # The oracle itself
