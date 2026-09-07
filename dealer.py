@@ -30,13 +30,25 @@ class Dealer:
 
         Args:
             stack_cards (np.array): The array of cards to assign to the player's hand.
-            player (int): The player number (1 through 4) to whom the cards are assigned.
+            player (int): The player index (0 through 3) to whom the cards are assigned.
 
         Returns:
             np.array: The updated hand for the specified player.
+
+        Raises:
+            ValueError: If a card in `stack_cards` is not present in the deck,
+                which means it was already dealt or stacked elsewhere.
         """
         self.hands[f"hand{player}"] = stack_cards
-        remove = np.isin(self.deck, stack_cards).all(axis=1)
+        # Match whole cards. np.isin here would compare each coordinate against
+        # every value in stack_cards, so a card was removed whenever both of its
+        # numbers happened to appear anywhere in the stack -- e.g. stacking
+        # 9d [9, 0] and Ac [0, -14] also removed Ah [-14, 0].
+        remove = (self.deck[:, None, :] == stack_cards[None, :, :]).all(axis=2).any(axis=1)
+        if remove.sum() != len(stack_cards):
+            raise ValueError(
+                f"stack_deck: matched {remove.sum()} of {len(stack_cards)} cards in the deck"
+            )
         self.deck = self.deck[~remove]
         return self.hands[f"hand{player}"]
 
