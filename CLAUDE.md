@@ -61,7 +61,7 @@ The archived pipeline's warmup is ~197 s; budget for it if you run a comparison.
 A card is a 2-element `int64` vector, not a (suit, rank) pair. `deck.py` holds all 24. Suit is direction, strength is magnitude:
 
 - Hearts `[-9..-14, 0]`, diamonds `[9..14, 0]`, clubs `[0, -9..-14]`, spades `[0, 90..140]`.
-- **Spades is always trump.** The whole engine is written for a single fixed trump suit; a hand with a different trump must be rotated into spades by the caller.
+- **Spades is always trump.** The whole engine is written for a single fixed trump suit. `rotation.py` does the rotation: `deal_to_engine(hands, trump)` takes natural `(suit, rank)` cards and any called suit and returns a solver-ready `(4, 5, 2)` array.
 - Trump ranks are scaled up by 10x, so `norm(card) > 80` is a trump test.
 - The left bower (jack of clubs) is stored as `[0, 135]` -- inside the trump axis, above the ace of spades and below the right bower `[0, 140]`. Clubs therefore has no jack in its own range. Suit membership is positional, so never infer a card's suit from its raw numbers.
 
@@ -73,7 +73,8 @@ search never touches a vector again -- no `np.linalg.norm`, no `arccos`, no
 ### Module layering
 
 ```
-deck.py            card constants
+deck.py            card constants (already in canonical spades-trump form)
+rotation.py        natural (suit, rank) cards <-> the canonical frame
 dealer.py          Dealer dataclass: shuffle, stack specific cards, deal 4x5
 n_game_sim.py      generate_hands() -> (n_games, 4, 5, 2) batch of dealt hands
 fast_search.py     the solver: depth-first alpha-beta over the game tree
@@ -212,6 +213,35 @@ with different offsets in each. And buffers are worst-case preallocated
 the ~533 MB resident footprint.
 
 `archive/legacy_approach/` is older still, superseded by both. Do not extend it.
+
+### Rotating a called suit into the canonical frame
+
+`rotation.py` owns the *natural* card form -- a `Card(suit, rank)` with rank
+9-14 and `J = 11` -- which is a different thing from `deck.py`'s vectors. The
+vectors already encode a trump call; natural cards do not.
+
+Rotation is **not** a plain suit relabel. The left bower is the jack of the suit
+the same colour as trump, so which jack leaves its own suit changes with the
+call: spades trump takes JC, but hearts trump takes JD. So the same-colour suit
+maps onto the canonical clubs axis (the one with only five cards, because its
+jack left), trump maps onto the trump axis, and the two off-colour suits map
+onto the hearts and diamonds axes, which keep all six ranks.
+
+The safety property, and what `tests/test_rotation.py` leans on: for every trump
+suit the mapping is a **bijection onto `full_euchre_deck`**. If two real cards
+ever collided, the solver would solve the wrong position without complaint --
+it has no way to know it was handed nonsense. Rotating into spades is the
+identity, which keeps `deck.py` and `rotation.py` honest about each other.
+
+`rotation.py` imports numpy and nothing from this repo, deliberately: a front
+end can parse, validate and rotate cards without pulling in numba. Compose it
+with the solver at the call site:
+
+```python
+from rotation import parse_hand, deal_to_engine, HEARTS
+from fast_search import definitive_winner
+definitive_winner(deal_to_engine(hands, HEARTS), starting_player=0, caller=0)
+```
 
 ## Repo notes
 

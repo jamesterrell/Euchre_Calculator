@@ -33,6 +33,26 @@ Cards are represented as 2D vectors for computational efficiency:
 
 This representation naturally captures suit relationships and trump hierarchy, with spades always designated as trump.
 
+### Calling a different suit
+
+The solver is written for spades as trump, so a hand with any other call is
+rotated into that frame first. `rotation.py` takes natural cards and does it:
+
+```python
+from rotation import parse_hand, deal_to_engine, HEARTS
+from fast_search import definitive_winner
+
+hands = [parse_hand("JH JD AH KH QH"),   # both bowers, hearts called
+         parse_hand("JS JC AS KS QS"),
+         parse_hand("AD KD QD TD 9D"),
+         parse_hand("AC KC QC TC 9C")]
+
+score = definitive_winner(deal_to_engine(hands, HEARTS), starting_player=0, caller=0)
+```
+
+Note that the left bower follows the *colour* of trump, so hearts called makes
+the jack of diamonds trump, not the jack of clubs. `rotation.py` handles that.
+
 ## Installation
 
 1. **Clone the repository:**
@@ -156,6 +176,7 @@ alpha-beta:
 ```
 ├── README.md                 # This file
 ├── deck.py                   # Card definitions and vector representations
+├── rotation.py               # Natural cards <-> the solver's canonical frame
 ├── dealer.py                 # Card dealing and hand management
 ├── n_game_sim.py             # Hand generation utilities
 ├── fast_search.py            # The solver: depth-first alpha-beta
@@ -164,6 +185,7 @@ alpha-beta:
 ├── tests/                    # Test suite
 │   ├── euchre_testkit.py     # Fixtures and independent rule oracles
 │   ├── test_deck.py          # Card encoding
+│   ├── test_rotation.py      # Trump rotation
 │   ├── test_dealer.py        # Shuffling, stacking, dealing
 │   ├── test_n_game_sim.py    # Hand generation
 │   ├── test_reference_solver.py  # The oracle itself
