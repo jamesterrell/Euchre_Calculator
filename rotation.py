@@ -104,7 +104,7 @@ def card_to_engine(card, trump):
             return [0, LEFT_BOWER]      # trump, not a card of its own suit
         return [0, -rank]               # canonical clubs axis
 
-    plus_x, minus_x = _plain_axes(trump)
+    plus_x, _ = _plain_axes(trump)
     if suit == plus_x:
         return [rank, 0]
     return [-rank, 0]
