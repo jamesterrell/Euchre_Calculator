@@ -76,6 +76,7 @@ search never touches a vector again -- no `np.linalg.norm`, no `arccos`, no
 deck.py            card constants (already in canonical spades-trump form)
 rotation.py        natural (suit, rank) cards <-> the canonical frame
 game.py            Deal: 4x5 natural cards + up-card + kitty + dealer seat
+bidding.py         the auction, solved under perfect knowledge
 dealer.py          Dealer dataclass: shuffle, stack specific cards, deal 4x5
 n_game_sim.py      generate_hands() -> (n_games, 4, 5, 2) batch of dealt hands
 fast_search.py     the solver: depth-first alpha-beta over the game tree
@@ -265,6 +266,42 @@ It is the natural-card replacement for `generate_hands`' `stack` / `up_card`.
 Note that `pick_up` keeps `up_card` on record after the dealer takes it, since
 every seat saw it and the bidding depends on that; `picked_up` says whether it
 is in a hand or on the kitty, and `all_cards` reads it accordingly.
+
+### Bidding
+
+`bidding.solve_bidding(deal)` solves the whole auction with every seat seeing
+every hand. It is the baseline against which heuristic bidders get measured,
+not the destination -- replace the decision rule, keep the machinery.
+
+The tree is a chain, not an exponential: round one is four order-or-pass
+decisions and an order ends it, round two is four name-or-pass decisions. At
+most 36 double-dummy solves per deal (24 in round one, since ordering up makes
+the dealer choose among six discards, plus 12 in round two), so about 10-25 ms.
+
+Everything is scored as **net points to team 0**, so calls by different seats
+can be compared on one scale. `net_to_team0` converts from
+`definitive_winner`'s caller's-perspective answer; `value_to(seat, v)` converts
+back for display. A sign error here hides on any deal where the teams agree, so
+it is tested directly.
+
+Three things that are easy to get wrong and are deliberate here:
+
+- **The dealer chooses the discard, not the caller.** When the opposition orders
+  it up, the dealer is picking up for a contract they want to fail and pitches
+  accordingly. `tests/test_bidding.py` pins a deal where that costs the caller a
+  march -- +1 instead of +2.
+- **Passing is not free.** Its value is whatever the rest of the auction
+  produces, which may be worse than the call you declined.
+- **Ties resolve to passing.** Otherwise perfect knowledge cheerfully orders up
+  a hand it knows will be euchred whenever declining is equally bad; the value
+  is the same but the reported line is nonsense.
+
+Two measured facts worth knowing: perfect knowledge essentially **never passes
+out** (0 of 1600 auctions), because somebody can nearly always find a call that
+is at worst harmless. And `stick_the_dealer=True` changes the result on about
+4% of deals -- it bites through the *threat*, by changing what earlier seats do.
+
+Loners are not modelled; a call is always four-handed.
 
 ## Repo notes
 
