@@ -4,6 +4,10 @@ Deliberately structured differently from fast_search.py: no forced-outcome
 cutoffs, different move ordering, plain recursion over a list-of-lists state.
 Used to check that fast_search's search and its rule encoding agree with a
 straightforward reading of the rules. See test_fast_search.py.
+
+Loners are handled the same way here as there, but written out separately: the
+caller's partner is emptied, the turn order skips it, a trick is three cards,
+and taking all five alone is worth 4.
 """
 
 def card_suit_strength(x, y):
@@ -22,17 +26,29 @@ def trick_winner(played):
     return max((p for p in played if p[0] == led), key=lambda p: p[1])[2]
 
 
-def solve_py(hands, starting_player, caller):
+def solve_py(hands, starting_player, caller, alone=False):
     """hands: list of 4 lists of (suit, strength). Returns calling-team score."""
     caller_team = caller % 2
     hands = [list(h) for h in hands]
 
+    sitting = (caller + 2) % 4 if alone else -1
+    width = 3 if alone else 4
+    march = 4 if alone else 2
+    if alone:
+        hands[sitting] = []
+        if starting_player == sitting:
+            starting_player = (starting_player + 1) % 4
+
+    def nxt(seat):
+        s = (seat + 1) % 4
+        return (s + 1) % 4 if s == sitting else s
+
     def rec(to_act, played, caller_tricks, trick_no, alpha, beta):
-        if len(played) == 4:
+        if len(played) == width:
             w = trick_winner(played)
             ct = caller_tricks + (1 if w % 2 == caller_team else 0)
             if trick_no + 1 == 5:
-                return 2 if ct == 5 else (1 if ct >= 3 else -2)
+                return march if ct == 5 else (1 if ct >= 3 else -2)
             return rec(w, [], ct, trick_no + 1, alpha, beta)
 
         hand = hands[to_act]
@@ -48,7 +64,7 @@ def solve_py(hands, starting_player, caller):
         best = -99 if maxing else 99
         for c in moves:
             hand.remove(c)
-            v = rec((to_act + 1) % 4, played + [(c[0], c[1], to_act)],
+            v = rec(nxt(to_act), played + [(c[0], c[1], to_act)],
                     caller_tricks, trick_no, alpha, beta)
             hand.append(c)
             if maxing:

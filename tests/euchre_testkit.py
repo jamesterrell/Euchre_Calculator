@@ -80,20 +80,39 @@ def winner_of(played):
     return max((p for p in played if p[0] == led), key=lambda p: p[1])[2]
 
 
-def score_from_tricks(caller_tricks, n_tricks=5):
-    """+2 march, +1 win, -2 euchred -- from the calling team's perspective."""
+def score_from_tricks(caller_tricks, n_tricks=5, alone=False):
+    """+2 march, +1 win, -2 euchred -- from the calling team's perspective.
+
+    A march called alone pays 4 instead of 2. Everything else is the same: three
+    or four tricks is 1, and being euchred alone still hands over only 2.
+    """
     if caller_tricks == n_tricks:
-        return 2
+        return 4 if alone else 2
     if caller_tricks >= 3:
         return 1
     return -2
+
+
+def sitting_seat(caller, alone=True):
+    """The seat that sits out a loner called by `caller`; -1 if nobody sits."""
+    return (caller + 2) % 4 if alone else -1
+
+
+def seat_order(leader, sitting=-1):
+    """The seats that play a trick, in order, skipping any sitting seat."""
+    order, seat = [], leader
+    for _ in range(4):
+        if seat != sitting:
+            order.append(seat)
+        seat = (seat + 1) % 4
+    return order
 
 
 class SearchTooLarge(Exception):
     """full_minimax hit its node budget. The hand is too branchy to brute force."""
 
 
-def full_minimax(hands, starting_player, caller, node_limit=None):
+def full_minimax(hands, starting_player, caller, node_limit=None, alone=False):
     """
     Exhaustive minimax with no pruning and no forced-outcome cutoffs.
 
@@ -112,6 +131,9 @@ def full_minimax(hands, starting_player, caller, node_limit=None):
 
     Args:
         node_limit: raise SearchTooLarge once this many nodes have been visited.
+        alone: solve it as a loner -- the caller's partner sits out, tricks are
+            three cards, and taking all five is worth 4. Much cheaper than the
+            four-handed tree, since a whole hand leaves the game.
 
     Returns (score, nodes_visited).
 
@@ -123,16 +145,27 @@ def full_minimax(hands, starting_player, caller, node_limit=None):
     n_tricks = len(state[0])
     nodes = [0]
 
+    sitting = sitting_seat(caller) if alone else -1
+    width = 3 if alone else 4
+    if alone:
+        state[sitting] = []
+        if starting_player == sitting:
+            starting_player = (starting_player + 1) % 4
+
+    def after(seat):
+        s = (seat + 1) % 4
+        return (s + 1) % 4 if s == sitting else s
+
     def rec(to_act, played, caller_tricks, trick_no):
         nodes[0] += 1
         if node_limit is not None and nodes[0] > node_limit:
             raise SearchTooLarge(
                 "exhaustive minimax passed its %d-node budget" % node_limit)
-        if len(played) == 4:
+        if len(played) == width:
             w = winner_of(played)
             ct = caller_tricks + (1 if w % 2 == caller_team else 0)
             if trick_no + 1 == n_tricks:
-                return score_from_tricks(ct, n_tricks)
+                return score_from_tricks(ct, n_tricks, alone)
             return rec(w, [], ct, trick_no + 1)
 
         held = state[to_act]
@@ -146,7 +179,7 @@ def full_minimax(hands, starting_player, caller, node_limit=None):
         for c in moves:
             held.remove(c)
             values.append(
-                rec((to_act + 1) % 4, played + [(c[0], c[1], to_act)],
+                rec(after(to_act), played + [(c[0], c[1], to_act)],
                     caller_tricks, trick_no)
             )
             held.append(c)
@@ -187,9 +220,36 @@ BRUTE_FORCEABLE = (
 )
 
 
+# The same idea for loners, one per possible lone outcome. A hand leaving the
+# game shrinks the tree hard -- these total ~37k nodes, an eighth of a second --
+# so two of them are the four-handed deals above solved alone instead, which
+# also shows the same layout taking a different value once the partner sits out.
+#
+# label,             hands,               starting_player, caller, score, nodes
+BRUTE_FORCEABLE_ALONE = (
+    ("lone march",
+     (["JD", "TH", "9C", "9S", "AH"],
+      ["AD", "AS", "9H", "QH", "JH"],
+      ["TS", "TC", "9D", "TD", "KH"],
+      ["JS", "QC", "KC", "KD", "QD"]), 3, 3, 4, 19_333),
+
+    # BRUTE_FORCEABLE's "three tricks" deal: worth 1 either way.
+    ("lone three tricks", BRUTE_FORCEABLE[1][1], 3, 1, 1, 6_668),
+
+    # BRUTE_FORCEABLE's "euchred" deal: still euchred with the partner out.
+    ("lone euchre", BRUTE_FORCEABLE[0][1], 1, 2, -2, 10_874),
+)
+
+
 def brute_forceable_deals():
     """Yield (label, deal, starting_player, caller, expected_score)."""
     for label, hands, starting_player, caller, score, _nodes in BRUTE_FORCEABLE:
+        yield label, deal(*hands), starting_player, caller, score
+
+
+def brute_forceable_lone_deals():
+    """Yield (label, deal, starting_player, caller, expected_score) for loners."""
+    for label, hands, starting_player, caller, score, _n in BRUTE_FORCEABLE_ALONE:
         yield label, deal(*hands), starting_player, caller, score
 
 
@@ -203,11 +263,15 @@ def legal_moves(held, led_suit):
 
 # ------------------------------------------------------------ line replay
 
-def replay_line(hands, starting_player, caller, score, ps, pv, pp, winners):
+def replay_line(hands, starting_player, caller, score, ps, pv, pp, winners,
+                alone=False):
     """
     Replay a line returned by fast_search.solve_line and re-derive everything:
     seat order, that the card was still held, the follow-suit rule against the
     hand as it stood, the trick winner, and the final score.
+
+    With `alone=True` the line is three cards a trick, the sitting partner must
+    never appear in it, and its cards must all still be in hand at the end.
 
     Returns a list of violations; empty means the line is sound.
     """
@@ -219,16 +283,26 @@ def replay_line(hands, starting_player, caller, score, ps, pv, pp, winners):
     caller_tricks = 0
     n_tricks = hands.shape[1]
 
+    sitting = sitting_seat(caller) if alone else -1
+    width = 3 if alone else 4
+    if ps.shape[1] != width:
+        errs.append("line is %d cards a trick, expected %d"
+                    % (ps.shape[1], width))
+        return errs
+    if alone and starting_player == sitting:
+        starting_player = (starting_player + 1) % 4
+
     for t in range(n_tricks):
         leader = starting_player if t == 0 else int(winners[t - 1])
+        order = seat_order(leader, sitting)
         led_suit = None
         played = []
 
-        for k in range(4):
+        for k in range(width):
             p = int(pp[t, k])
-            if p != (leader + k) % 4:
+            if p != order[k]:
                 errs.append("trick %d seat %d: player %d played, expected %d"
-                            % (t + 1, k, p, (leader + k) % 4))
+                            % (t + 1, k, p, order[k]))
 
             card = tuple(_decode(ps[t, k], pv[t, k]))
             if card not in remaining[p]:
@@ -252,7 +326,11 @@ def replay_line(hands, starting_player, caller, score, ps, pv, pp, winners):
         if w % 2 == caller_team:
             caller_tricks += 1
 
-    expected = score_from_tricks(caller_tricks, n_tricks)
+    if alone and len(remaining[sitting]) != n_tricks:
+        errs.append("seat %d sat out but %d of its cards were played"
+                    % (sitting, n_tricks - len(remaining[sitting])))
+
+    expected = score_from_tricks(caller_tricks, n_tricks, alone)
     if expected != score:
         errs.append("solver returned %d but its own line takes %d tricks (-> %d)"
                     % (score, caller_tricks, expected))

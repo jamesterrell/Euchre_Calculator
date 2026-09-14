@@ -14,7 +14,7 @@ Tests. The unit suite is stdlib `unittest`, so it needs nothing beyond numpy
 and numba:
 
 ```bash
-python -m unittest discover               # whole suite, ~55s including JIT warmup
+python -m unittest discover               # whole suite, ~70s including JIT warmup
 python -m unittest tests.test_solver      # one module
 python -m unittest tests.test_solver.TestLeftBower -v
 python tests/test_solver.py               # or run a file directly
@@ -23,9 +23,12 @@ python tests/test_solver.py               # or run a file directly
 Plus the randomised regression sweep, which is a script rather than a test case:
 
 ```bash
-python tests/test_fast_search.py          # 400 hands, ~20s including JIT warmup
+python tests/test_fast_search.py          # 400 hands twice, ~27s with JIT warmup
 python tests/test_fast_search.py 2000     # more hands
 ```
+
+Every hand in that sweep is solved twice, four-handed and as a loner, and the
+JIT warmup covers both.
 
 Run everything from the repo root. `tests/__init__.py` puts the root and the
 tests directory on `sys.path`, which is why bare-name imports work inside the
@@ -85,6 +88,7 @@ tests/             the suite, see "Testing" below
   euchre_testkit.py  fixtures: named cards, line replay, and an exhaustive
                      no-pruning minimax used as the ground-truth oracle
   test_*.py          unit tests
+  test_loners.py     loners, solver and bidding both
   test_fast_search.py randomised regression sweep for fast_search
 archive/           superseded code, see "Archived approaches" below
 ```
@@ -103,6 +107,12 @@ a seed: a seeded pick makes the suite's runtime luck, and one unlucky reseed
 turns a fast suite into a multi-minute one with nothing looking wrong. For
 exploratory calls, `node_limit=` raises `SearchTooLarge` instead of hanging.
 
+`BRUTE_FORCEABLE_ALONE` is the same idea for loners (`full_minimax(...,
+alone=True)`), one deal per lone outcome, ~37k nodes total. Two of the three are
+`BRUTE_FORCEABLE`'s own deals solved alone instead, which keeps the fixture
+small and shows the same layout taking a different value once a hand leaves the
+game.
+
 `fast_search.py` imports only numpy and numba -- nothing from this repo.
 
 ### Teams and scoring
@@ -111,6 +121,11 @@ Even players `(0, 2)` are one team, odd `(1, 3)` the other. Score is always
 **from the calling team's perspective**: `+2` march (all 5 tricks), `+1` win
 (3-4 tricks), `-2` euchred (0-2 tricks). Optimal play is minimax by parity: a
 player maximizes when `player % 2 == caller % 2` and minimizes otherwise.
+
+Called alone, a march pays `+4` instead of `+2`. Nothing else changes: three or
+four tricks is still `+1`, and being euchred alone still hands over only `2`. So
+a loner's value is one of `{-2, 1, 4}` and **never 2** -- a useful invariant,
+and one the tests assert. Defending alone is not modelled.
 
 Player indices are absolute (0-3), never relative to the lead.
 
@@ -145,6 +160,33 @@ Two forced-outcome cutoffs fire at trick boundaries: the calling team can no
 longer reach 3 tricks (`-2`), or it has 3 and a march is already impossible
 (`+1`).
 
+### Loners
+
+`solve`, `solve_line` and `definitive_winner` all take `alone=`. It changes
+three things and nothing else: the caller's partner `(caller + 2) % 4` is given
+a card count of zero so its dealt hand is as out of play as the kitty, turn
+order steps over that seat, and a trick completes at three cards. If the sitting
+seat would have led trick one, the lead passes to the next live seat -- that
+case is real, since play always starts left of the dealer whoever called.
+`solve_line` returns `(5, 3)` play arrays instead of `(5, 4)`; read the width
+off `ps.shape[1]` rather than assuming four.
+
+**`_search_alone` is a hand copy of `_search`, deliberately.** The obvious
+implementation threads the trick width and the sitting seat through the one
+recursion, and that was written and measured first: identical node counts, but
+**1.7x-2.5x slower per node** on the four-handed path, purely from the per-node
+width test and the skip-the-sitting-seat step. Four-handed play is the hot path
+-- an EV sweep is tens of thousands of those solves -- so it keeps its literal
+`3`s and `4`s and loners get their own function. The shared pieces are the ones
+where duplication would actually be dangerous: `_resolve` (the trick-winner
+rule, which takes a width) and `_final` (the scoring). What guards the copy is
+that `tests/test_loners.py` runs it against both independent oracles, and
+`tests/test_fast_search.py` sweeps every hand twice.
+
+Measured: loner solves are ~3x cheaper in aggregate (0.23 ms vs 0.75 ms/hand
+over the same 400 hands). Not deal by deal, though -- a four-handed position
+often trips a forced-outcome cutoff that the same layout alone does not.
+
 Alpha-beta here is exact, not approximate -- it skips only branches that
 provably cannot change the value. Verified against an exhaustive minimax with
 every cutoff removed: identical value on 60/60 hands while visiting 0.31% of the
@@ -153,13 +195,20 @@ nodes (789k vs 253M). On `test_hand.txt` that is 14.5k nodes vs 2.16M.
 ### Testing
 
 `tests/test_deck.py`, `test_dealer.py`, `test_n_game_sim.py`,
-`test_reference_solver.py` and `test_solver.py` are the unit suite. The layering matters: `test_solver.py`
+`test_reference_solver.py`, `test_solver.py` and `test_loners.py` are the unit
+suite. The layering matters: `test_solver.py`
 checks `fast_search` against `reference_solver`, and `test_reference_solver.py`
 checks *that* against `euchre_testkit.full_minimax`, which cannot prune and so
 cannot be wrong the way an alpha-beta search can. Do not collapse those layers.
 
-`tests/test_fast_search.py` is the broad randomised sweep and validates two ways,
-neither of which trusts the archived pipeline:
+`test_loners.py` covers both halves of the feature -- the solver's sitting seat,
+three-card tricks and `+4` march, and bidding's `allow_loners` -- because they
+are one change and splitting it across two files hides the seam where sign
+conventions get lost. It uses the same three-layer cross-check.
+
+`tests/test_fast_search.py` is the broad randomised sweep. It puts every hand
+through twice -- four-handed, then alone -- and validates two ways, neither of
+which trusts the archived pipeline:
 
 1. against `reference_solver.py`, a pure-Python solver written straight from the
    rules with different move ordering and without the forced-outcome cutoffs;
@@ -186,9 +235,6 @@ run them put that directory on the path rather than treating it as a package:
 import sys; sys.path.insert(0, "archive/beta_approach")
 from tree_search import definitive_winner
 ```
-
-`interface.ipynb`'s last cell does exactly this to compare the two solvers on
-`hands_test`.
 
 **It disagrees with `fast_search` on roughly 20% of hands, in both directions,**
 because it does not compute a minimax value. It scores a move by the **mean**
@@ -301,7 +347,38 @@ out** (0 of 1600 auctions), because somebody can nearly always find a call that
 is at worst harmless. And `stick_the_dealer=True` changes the result on about
 4% of deals -- it bites through the *threat*, by changing what earlier seats do.
 
-Loners are not modelled; a call is always four-handed.
+#### Loners in the auction
+
+`solve_bidding(deal, allow_loners=True)` adds "and alone" as a separate option
+beside every call; `order_up` and `name_suit` take `alone=` directly. It is
+**off by default**, so every existing four-handed measurement stays comparable.
+Options are listed pass, call, call-alone, and `_best` keeps the first of
+equals, so a loner worth no more than the same call four-handed is declined --
+same reasoning as ties resolving to passing.
+
+Three things worth knowing before touching it:
+
+- **It barely matters under perfect knowledge.** Allowing loners changes the
+  auction on ~1% of deals (6 of 480 measured), and always the same way: a made
+  contract becomes a lone march. That follows from the scoring -- going alone
+  only gains when the caller can take all five unaided, since 3-4 tricks is `+1`
+  either way and a euchre costs the same `2`. At the eldest seat over 32 deals,
+  going alone was better on 0, worse on 8, equal on 24.
+- **It is not monotone for either team.** The loner is an extra option for
+  *both* sides, so team 0's value moves down on the deals where team 1 is the
+  one with the loner. Don't assert a direction.
+- **Cost:** ~72 solves per auction instead of 36, but lone solves are ~3x
+  cheaper, so the wall clock goes up by roughly a third, not double.
+
+`order_up` short-circuits one case: if the caller goes alone and the **dealer is
+the partner sitting out**, the dealer picks up into a hand that never plays, so
+all six discards are worth exactly the same and the choice is unobservable. It
+solves one (pitching the up-card, by convention) rather than six. `test_loners.py`
+checks that the six really do agree rather than taking it on trust.
+
+`first_bid_options(deal)` is the front-end shape of the question: `{"pass",
+"order", "order alone"}`, all on the first bidder's own team's scale, so the
+largest number is the best bid. `first_bid_choice` remains the two-option form.
 
 ## Repo notes
 
@@ -309,4 +386,5 @@ Loners are not modelled; a call is always four-handed.
 - `Dealer.stack_deck` appends to a player's hand instead of replacing it. Replacing meant the second call dropped the first call's cards while leaving them removed from the deck, so they were dealt to nobody -- `generate_hands` hit this whenever `stack` and `up_card` named the same player, and the hand then played out with 17 live cards. It also now validates the seat, the card shape (accepting a bare `(2,)` card), and that the stack cannot overfill a 5-card hand; the last used to surface as `ValueError: Negative dimensions are not allowed` from inside `np.random.choice`.
 - `Dealer.__post_init__` honours `players` rather than always building four hands, and rejects a table the deck cannot seat.
 - `Dealer.stack_deck` used `np.isin(self.deck, stack_cards).all(axis=1)`, which compared each *coordinate* against every value in the stack rather than matching whole cards, so it silently deleted extra cards from the deck (stacking 9d `[9,0]` and Ac `[0,-14]` also removed Ah `[-14,0]`). Those cards then could not be dealt to anyone. It now matches rows and raises if it does not match exactly `len(stack_cards)` cards. Measured effect on one affected stack: EV moved from +1.530 to +1.608 over 5000 deals, non-overlapping CIs.
-- `test_hand.txt` is the canonical fixture, also inlined in `tests/test_fast_search.py`, `tests/test_solver.py` and `interface.ipynb`. Its true value is 2 with `starting_player=2, caller=0`.
+- `test_hand.txt` is the canonical fixture, also inlined in `tests/test_fast_search.py` and `tests/test_solver.py`. Its true value is 2 with `starting_player=2, caller=0`, and -2 solved alone.
+- `interface.ipynb` is deliberately one worked example, four cells: a hand dealt with `deal_from_order`, the auction solved under perfect information with `allow_loners=True`, and the play. The deal is written out by hand rather than seeded, because the example only works if the loner is obvious -- seat 0 holds both bowers plus A-K of trump and an outside ace, and `first_bid_options` reads pass +2 / order +2 / order alone +4. It is not a dashboard: anything that sweeps deals or measures EV belongs in a script or the tests, where it runs headless and gets checked. Earlier versions grew EV sweep cells; `git log -p -- interface.ipynb` has those if one is wanted back.
