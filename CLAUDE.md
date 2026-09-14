@@ -36,6 +36,23 @@ suite and why `discover` needs no `-t` flag.
 
 Run both after any solver change.
 
+And the imperfect-information sweep, which is a measurement rather than a test
+-- it has no pass/fail, it reports what honest players did:
+
+```bash
+python pimc_example.py                    # ONE deal, every decision narrated
+python pimc_example.py --pass-model zero  # ...with passing priced at nothing
+python pimc_sweep.py                      # 40 deals, PIMC table vs perfect
+python pimc_sweep.py 60 --head-to-head    # what does seeing actually buy?
+python pimc_sweep.py 100 --pass-model zero --bid-samples 16
+```
+
+`pimc_example.py` is the one to read first. It plays a single pinned deal and
+prints what every seat could see, what each of its options was worth, and which
+it took -- the working behind "the player takes the highest-EV move". Its
+docstring lists other seeds worth looking at: a euchre, a hostile discard, a
+second-round call, a made loner.
+
 Primary workflow is the notebook:
 
 ```bash
@@ -84,11 +101,19 @@ dealer.py          Dealer dataclass: shuffle, stack specific cards, deal 4x5
 n_game_sim.py      generate_hands() -> (n_games, 4, 5, 2) batch of dealt hands
 fast_search.py     the solver: depth-first alpha-beta over the game tree
 reference_solver.py independent pure-Python solver, used only by the tests
+observation.py     one seat's information set, and sampling worlds from it
+table.py           the referee: play a deal out with four player objects
+players.py         decision rules: PerfectPlayer, PIMCPlayer, RandomPlayer
+pimc_sweep.py      measures a PIMC table against the perfect-knowledge one
+pimc_example.py    one deal, every decision narrated -- read this one first
 tests/             the suite, see "Testing" below
   euchre_testkit.py  fixtures: named cards, line replay, and an exhaustive
                      no-pruning minimax used as the ground-truth oracle
   test_*.py          unit tests
   test_loners.py     loners, solver and bidding both
+  test_position.py   partially played positions; replay along an optimal line
+  test_observation.py what a seat knows, and that sampled worlds respect it
+  test_table.py      the referee and the players, incl. the PerfectPlayer pin
   test_fast_search.py randomised regression sweep for fast_search
 archive/           superseded code, see "Archived approaches" below
 ```
@@ -224,6 +249,200 @@ the trick-buffer bug above. Agreement with the archived code is not evidence.
 segfaults (SIGSEGV, reliably) when loading a cached *recursive* njit function,
 so the 15 s warmup cannot currently be cached away. Making `_search` iterative
 with an explicit stack would unblock that if the warmup ever matters.
+
+## Playing without perfect knowledge
+
+Everything above this section answers a deal all at once, with every hand
+visible. `table.py`, `observation.py` and `players.py` are the other mode: four
+independent players, each seeing only its own cards, deciding one at a time.
+
+```
+observation.py     one seat's information set; sampling layouts consistent with it
+table.py           the referee: drives a Deal through the auction and the play
+players.py         decision rules -- PerfectPlayer, PIMCPlayer, RandomPlayer
+pimc_sweep.py      measures a PIMC table against the perfect-knowledge one
+pimc_example.py    one deal, narrated decision by decision
+```
+
+`PIMCPlayer.last_scores` holds the averaged value of every option from its most
+recent decision, which is what `pimc_example.py` prints and what a front end
+would want. It is empty when there was nothing to decide.
+
+The split between referee and strategy is strict. `table.py` holds no strategy
+at all: it offers the legal options, checks the answer is one of them, and
+writes down what happened. Every decision comes from a player object, so the
+same loop gives a perfect-knowledge table, a PIMC table, or a table of coin
+flips depending only on who is sitting at it.
+
+**Players are handed both the truth and their own view.** `turn.deal` is the
+whole table; `turn.observation` is that seat's information set. A player that
+reads `turn.deal` is cheating by definition -- `PerfectPlayer` does, on purpose.
+`tests/test_table.py` wraps `turn.deal` in a tripwire and asserts `PIMCPlayer`
+never touches it, because a peeking PIMC player would otherwise just look like
+an unusually strong one.
+
+**A table of four `PerfectPlayer`s reproduces `solve_bidding` exactly** -- same
+contract, same discard, same score, on every deal tested. That is the pin: the
+referee and the perfect player re-derive the existing baseline through entirely
+new code, so the machinery is anchored to the old answer before PIMC rides on
+it. It matches because the option ordering and the tie rule are the same ones
+`bidding._best` uses: options are listed pass, call, call-alone, and the first
+of equals wins.
+
+### What the solver needed for this
+
+`solve` and `solve_line` both start from a fresh deal -- five cards each,
+nothing played. That is the one position a player choosing a card is never in
+after the opening lead. `fast_search.solve_position` and `position_moves` take
+the position as it actually stands: per-seat card counts, a trick part-built,
+tricks already won.
+
+Nothing in the recursion had to change. `trick_no` and `caller_tricks` were
+already absolute rather than relative, and `n` was already a per-seat count, so
+entering at trick 3 with two cards each is just a different set of arguments;
+the hardcoded 5 tricks and 3 needed stay true. What is new is `_check_position`,
+and it is long on purpose -- njit has no bounds checking, so a card count that
+disagrees with the trick number reads past the end of the state arrays and
+takes the interpreter with it, the same failure `_validate` was written for.
+
+`position_moves` returns a value per *legal card* rather than one value for the
+position, which is what a player choosing a card needs and what `solve` does not
+give. `solve_line`'s per-ply loop was rerouted through it, so every existing
+`solve_line` test now exercises the new code as well.
+
+The invariant that tests all of it: **along a double-dummy optimal line the
+position value never changes** -- both sides are already playing their best, so
+nothing either does moves the number. `tests/test_position.py` walks
+`solve_line`'s own line and re-solves from scratch at all 20 plies, and every
+one of them has a known answer.
+
+### What a seat knows
+
+`observation.Observation` is one seat's view, and `sample_worlds` turns it into
+concrete deals the solver can take. Three kinds of inference go into a sampled
+world, all of them real Euchre rather than bookkeeping:
+
+- **counts** -- every seat has played the same number of cards, so how many each
+  still holds is public;
+- **voids** -- a seat that failed to follow a led suit holds none of it, for the
+  rest of the hand;
+- **the up-card** -- turned down means buried and nobody holds it; ordered up
+  means the dealer took it, and it is still in their hand unless they have since
+  shown out of trump, in which case it must have been what they buried.
+
+Voids are read in **effective** suits, so the left bower counts as trump. A
+player who ruffs a club lead with the left bower has not shown a club void, and
+a player who follows a club lead cannot have done it with the left bower. A
+sampler working off the printed suit gets both backwards and deals people cards
+they have already shown they cannot hold.
+
+The kitty's capacity is **derived** from card conservation rather than counted,
+which is what lets the one awkward moment -- the dealer holding six cards,
+picked up and not yet thrown -- be an ordinary `Observation` with
+`pending_discard=True` instead of a special case bolted onto the player.
+
+**Bidding inference is deliberately not modelled.** Worlds are drawn as though
+the auction said nothing about anybody's cards, so a seat that ordered up is not
+assumed to hold trump. That makes PIMC players weaker than they could be, and
+weaker in a specific direction: they under-rate the caller. Closing it needs a
+bidding model, which is the thing this project is trying to produce, so the
+circularity is left open on purpose rather than closed with a guess.
+
+### PIMC, and where the time goes
+
+`PIMCPlayer` samples N layouts consistent with what its seat has seen, solves
+each one exactly, and takes the option with the best average. It is not a search
+over information sets and it does not know that it does not know, which shows up
+as two well-known distortions -- **strategy fusion** (it credits itself with
+plans that depend on knowing which world it is in) and **non-locality** (it
+expects opponents to find defences they cannot see). Both make it optimistic.
+Neither makes it weak.
+
+**Pricing a pass is nearly the whole cost of bidding.** A pass is worth whatever
+the rest of the auction does, so `pass_model="dd"` (the default) runs the rest of
+the auction under perfect knowledge inside each sampled world -- up to 36 solves
+per sample. It is inconsistent in an obvious way, since inside the sample the
+other seats can see the hand this player is trying to hide, and it is still the
+best available answer to "what happens if I decline". `pass_model="zero"` prices
+a pass at 0 instead: much faster, and a markedly more aggressive bidder.
+
+Card play is cheap by comparison -- a mid-hand position solve is far smaller
+than a whole hand, and a seat with one legal card skips the search entirely
+rather than spending a few hundred solves confirming it has no choice.
+
+Tie-breaks matter more here than they look. Averaging over worlds mostly
+*destroys* the exact ties that the double-dummy auction resolved against
+calling, which is part of why a PIMC table calls loners so much more often than
+a perfect-knowledge one. Among cards the search rates identically, `tie_break`
+defaults to playing the cheapest; that only ever chooses between moves of equal
+expected value, so it cannot cost anything the model can see, but pass
+`tie_break="first"` when measuring PIMC rather than trying to win with it.
+
+### What honest players actually do
+
+Measured by `pimc_sweep.py` over 60 deals at 20 play samples and 10 bid samples
+per decision, loners allowed, dealer rotating. Sampling error is large at this
+size -- these are shapes, not constants.
+
+|                            | PIMC         | perfect knowledge |
+| -------------------------- | ------------ | ----------------- |
+| passed out                 |  0%          |  0%               |
+| called alone               | 10%          |  1.7%             |
+| ordered up in round one    | 57/60        | 41/60             |
+| named a suit in round two  |  3/60        | 19/60             |
+| euchred                    | 43% of calls | 10%               |
+| marched                    | 10% of calls | 28%               |
+| mean tricks to the caller  | 2.75         | 3.55              |
+| mean points to the caller  | -0.10        | +1.02             |
+
+The two auctions land on the same trump suit 67% of the time and the same
+caller 55% of the time.
+
+**Seeing the other hands is worth about 1.26 points a deal.** `--head-to-head`
+puts PIMC on one team and perfect knowledge on the other, and plays each deal
+twice with the teams swapped so seat and dealer advantages cancel exactly rather
+than statistically. Over 50 deals: **-1.26 +/- 0.36 points per deal** to PIMC.
+A euchre is worth 2, for scale.
+
+**PIMC over-calls, and it is not sampling noise.** The obvious suspicion about
+"take the best of several noisy averages" is the optimizer's curse, so it was
+checked directly: over the same 40 deals, at 5, 10 and 30 bid samples, the
+euchre rate was 48%, 45% and 48%. Flat. More search does not make it more
+careful.
+
+**Most of the over-calling is the pass model.** Same 40 deals with
+`pass_model="zero"`: the euchre rate falls to 20-28% and the average call goes
+from -0.17 to +0.65 points. Pricing a pass by running the rest of the auction
+under perfect knowledge makes declining look worse than it is, because perfect
+knowledge essentially always finds a call -- so the pass branch nearly always
+reads "an opponent ends up calling this", and never "it comes back around to
+me".
+
+**But the better-behaved bidder is not a better player, and this is a trap
+worth knowing about.** Head to head against perfect knowledge, teams swapped on
+every deal: `"dd"` scores -1.26 +/- 0.36 and `"zero"` scores -1.34 +/- 0.36 over
+the same 50 deals. Indistinguishable. Mean points *per call* flattered `"zero"`
+only because it is averaged over the deals a player chose to call, and silently
+drops what the deals it passed on cost it. That is `bidding.py`'s "passing is
+not free" turning up as a measurement trap rather than a bidding one -- do not
+read a per-call average as a strength number. What `"zero"` reliably is, is
+about 4x faster.
+
+**Nothing ever passes out, under either model** -- 0 of 60 in the main sweep and
+0 of 40 in all five diagnostic configurations. That was the one prediction in
+this file that did not come true, and the pass model does not explain it:
+`"zero"` prices a pass at exactly nothing and still never throws a hand in. The
+reason is the number of chances. Eight seats bid in turn, and each round-two
+seat is choosing among three suits -- six options once loners are on. Somebody
+almost always finds something that looks positive, especially since PIMC's
+estimates are optimistic to begin with. Getting a table to pass a deal out
+needs a model of what the *other* seats will do with it, which is exactly what
+neither pass model has. That is the next thing worth building.
+
+**Loners move the way real tables move** -- 1.7% to 10%. Some of that is honest
+optimism about hands that might run. Some of it is mechanical: averaging over
+sampled worlds destroys the exact ties that made the double-dummy auction
+decline a loner worth no more than the same call four-handed.
 
 ## Archived approaches
 

@@ -336,3 +336,49 @@ def first_bid_options(deal: Deal, allow_loners: bool = True) -> dict:
     if allow_loners:
         options["order alone"] = value_to(seat, order_up(deal, seat, True)[0])
     return options
+
+
+# ------------------------------------------------- entry points for players
+#
+# `solve_bidding` runs the whole auction itself, which is what the baseline
+# wants and exactly what a table of independent players cannot use: there the
+# auction is driven one seat at a time from outside, and a seat that is
+# considering passing needs the value of *the rest* of it. These expose the two
+# pieces `table.py` needs without reaching into the recursion.
+
+
+def rest_of_auction(deal: Deal, index: int, order=None,
+                    stick_the_dealer: bool = False,
+                    allow_loners: bool = False,
+                    bidding_round: int = ROUND_ONE) -> Outcome:
+    """
+    The auction from `index` onward, solved under perfect knowledge.
+
+    This is what passing is worth. A seat that declines a call does not get
+    zero -- it gets whatever the remaining seats do, which can be worse than
+    the call it turned down, and that is the whole reason passing has to be
+    priced rather than assumed free.
+
+    Args:
+        deal: the deal, before any pickup.
+        index: how far through `order` the auction has already got.
+        order: the bidding order; `deal.bidding_order()` by default.
+        bidding_round: ROUND_ONE or ROUND_TWO. In round two `index` counts
+            from the start of round two, not from the start of the auction.
+    """
+    order = list(order if order is not None else deal.bidding_order())
+    if bidding_round == ROUND_ONE:
+        return _round_one(deal, index, order, stick_the_dealer, allow_loners)
+    if bidding_round == ROUND_TWO:
+        return _round_two(deal, index, order, stick_the_dealer, allow_loners)
+    raise ValueError("no such bidding round: %r" % (bidding_round,))
+
+
+def best_discard(deal: Deal, caller: int, alone: bool = False):
+    """
+    The card the dealer pitches on being ordered up, under perfect knowledge.
+
+    Chosen for the *dealer's* team, which is the point: ordered up by the
+    opposition, the dealer is taking a card into a contract they want to fail.
+    """
+    return order_up(deal, caller, alone)[1].discard

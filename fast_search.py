@@ -379,6 +379,88 @@ def _descend(suits, strs, n, t_suit, t_str, t_player, n_in_trick, to_act,
                          -1000, 1000, nodes, sitting)
 
 
+# _position_moves is the one-ply fan-out: it plays each legal card in turn and
+# solves the position that results, so the caller sees a value per candidate
+# rather than a single best. solve_line uses it to pick a move, and
+# position_moves exposes it for search from a partially played position, which
+# is what a player who has to *choose* a card needs.
+#
+# The alpha-beta window is deliberately left wide open. solve_line and PIMC
+# both want every candidate's true value, and a narrowing window would return
+# bounds rather than values for the also-rans.
+@njit
+def _position_moves(suits, strs, n, t_suit, t_str, t_player, n_in_trick,
+                    to_act, caller_team, caller_tricks, trick_no, sitting,
+                    width, nodes):
+    """
+    Value of every legal card for the seat to act, from the caller's side.
+
+    Returns (idx, vals, m): the first m entries of idx are indices into
+    to_act's hand and vals holds their values. State is restored exactly.
+    """
+    cnt = n[to_act]
+    idx = np.full(cnt, -1, dtype=np.int64)
+    vals = np.zeros(cnt, dtype=np.int64)
+    m = 0
+
+    led = -1
+    has_led = False
+    if n_in_trick > 0:
+        led = t_suit[trick_no, 0]
+        for i in range(cnt):
+            if suits[to_act, i] == led:
+                has_led = True
+                break
+
+    last = cnt - 1
+    for i in range(cnt):
+        if has_led and suits[to_act, i] != led:
+            continue
+
+        t_suit[trick_no, n_in_trick] = suits[to_act, i]
+        t_str[trick_no, n_in_trick] = strs[to_act, i]
+        t_player[trick_no, n_in_trick] = to_act
+
+        s_tmp = suits[to_act, i]
+        v_tmp = strs[to_act, i]
+        suits[to_act, i] = suits[to_act, last]
+        strs[to_act, i] = strs[to_act, last]
+        suits[to_act, last] = s_tmp
+        strs[to_act, last] = v_tmp
+        n[to_act] = last
+
+        if n_in_trick == width - 1:
+            w = _resolve(t_suit, t_str, t_player, trick_no, width)
+            nct = caller_tricks
+            if (w % 2) == caller_team:
+                nct += 1
+            if trick_no + 1 == _ALL:
+                val = _final(nct, sitting >= 0)
+            else:
+                val = _descend(suits, strs, n, t_suit, t_str, t_player,
+                               0, w, caller_team, nct, trick_no + 1,
+                               nodes, sitting)
+        else:
+            val = _descend(suits, strs, n, t_suit, t_str, t_player,
+                           n_in_trick + 1, _next(to_act, sitting),
+                           caller_team, caller_tricks, trick_no,
+                           nodes, sitting)
+
+        n[to_act] = cnt
+        s_tmp = suits[to_act, i]
+        v_tmp = strs[to_act, i]
+        suits[to_act, i] = suits[to_act, last]
+        strs[to_act, i] = strs[to_act, last]
+        suits[to_act, last] = s_tmp
+        strs[to_act, last] = v_tmp
+
+        idx[m] = i
+        vals[m] = val
+        m += 1
+
+    return idx, vals, m
+
+
 @njit
 def solve_line(hands, starting_player, caller, alone=False):
     """
@@ -410,73 +492,27 @@ def solve_line(hands, starting_player, caller, alone=False):
     n_in_trick = 0
 
     while trick_no < ncards:
-        cnt = n[to_act]
-        last = cnt - 1
-        led = -1
-        has_led = False
-        if n_in_trick > 0:
-            led = t_suit[trick_no, 0]
-            for i in range(cnt):
-                if suits[to_act, i] == led:
-                    has_led = True
-                    break
+        idx, vals, m = _position_moves(
+            suits, strs, n, t_suit, t_str, t_player, n_in_trick, to_act,
+            caller_team, caller_tricks, trick_no, sitting, width, nodes)
 
         maximizing = (to_act % 2) == caller_team
         best_val = -1000 if maximizing else 1000
         best_i = -1
-
-        for i in range(cnt):
-            if has_led and suits[to_act, i] != led:
-                continue
-
-            t_suit[trick_no, n_in_trick] = suits[to_act, i]
-            t_str[trick_no, n_in_trick] = strs[to_act, i]
-            t_player[trick_no, n_in_trick] = to_act
-
-            s_tmp = suits[to_act, i]
-            v_tmp = strs[to_act, i]
-            suits[to_act, i] = suits[to_act, last]
-            strs[to_act, i] = strs[to_act, last]
-            suits[to_act, last] = s_tmp
-            strs[to_act, last] = v_tmp
-            n[to_act] = last
-
-            if n_in_trick == width - 1:
-                w = _resolve(t_suit, t_str, t_player, trick_no, width)
-                nct = caller_tricks
-                if (w % 2) == caller_team:
-                    nct += 1
-                if trick_no + 1 == ncards:
-                    val = _final(nct, alone_flag)
-                else:
-                    val = _descend(suits, strs, n, t_suit, t_str, t_player,
-                                   0, w, caller_team, nct, trick_no + 1,
-                                   nodes, sitting)
-            else:
-                val = _descend(suits, strs, n, t_suit, t_str, t_player,
-                               n_in_trick + 1, _next(to_act, sitting),
-                               caller_team, caller_tricks, trick_no,
-                               nodes, sitting)
-
-            n[to_act] = cnt
-            s_tmp = suits[to_act, i]
-            v_tmp = strs[to_act, i]
-            suits[to_act, i] = suits[to_act, last]
-            strs[to_act, i] = strs[to_act, last]
-            suits[to_act, last] = s_tmp
-            strs[to_act, last] = v_tmp
-
+        for k in range(m):
             if maximizing:
-                if val > best_val:
-                    best_val = val
-                    best_i = i
+                if vals[k] > best_val:
+                    best_val = vals[k]
+                    best_i = idx[k]
             else:
-                if val < best_val:
-                    best_val = val
-                    best_i = i
+                if vals[k] < best_val:
+                    best_val = vals[k]
+                    best_i = idx[k]
 
         # commit the chosen card
         i = best_i
+        cnt = n[to_act]
+        last = cnt - 1
         t_suit[trick_no, n_in_trick] = suits[to_act, i]
         t_str[trick_no, n_in_trick] = strs[to_act, i]
         t_player[trick_no, n_in_trick] = to_act
@@ -555,3 +591,198 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose=False,
         print("Trick %d winner: %d" % (t + 1, winners[t]))
     print("Final result:", winners.tolist())
     return int(score)
+
+
+# ------------------------------------------------- partially played positions
+#
+# solve() and solve_line() both start from a fresh deal: five cards each, no
+# trick in progress, nothing won yet. A player who has to *choose* a card is
+# never in that position after the opening lead, so PIMC -- or any other
+# search-at-your-turn player -- needs an entry point that takes the position as
+# it actually stands.
+#
+# Nothing in the recursion had to change for this. `trick_no` and
+# `caller_tricks` were already absolute rather than relative, and `n` was
+# already a per-seat count, so entering at trick 3 with two cards each and one
+# trick already won is just a different set of arguments. The two hardcoded
+# constants stay true: a hand is still _ALL tricks long and the calling team
+# still needs _NEEDED of them, counting the ones already in the bag.
+#
+# What is new is the validation, and it earns its length. njit does no bounds
+# checking, so a seat index or a card count that disagrees with the trick
+# number reads past the end of the state arrays and takes the interpreter with
+# it -- the same failure mode `_validate` was written for.
+
+
+def _encode_cards(cards):
+    """(k, 2) vector cards -> (suits, strengths), each (k,)."""
+    cards = np.ascontiguousarray(cards, dtype=np.int64).reshape(1, -1, 2)
+    suits, strs = encode_hands(cards)
+    return suits[0], strs[0]
+
+
+def _check_position(hands, counts, trick_cards, trick_players, to_act, caller,
+                    caller_tricks, trick_no, alone):
+    """
+    Reject any position the search cannot handle, with a readable message.
+
+    The count-per-seat rule is the load-bearing one: by trick `trick_no` every
+    live seat has played exactly `trick_no` cards, plus one more if it has
+    already played to the trick now on the table. A position that disagrees
+    describes a hand that cannot have happened, and the search would go ahead
+    and solve it anyway and hand back a number.
+    """
+    if hands.ndim != 3 or hands.shape[0] != 4 or hands.shape[2] != 2:
+        raise ValueError("hands must be shaped (4, cards, 2), got %r"
+                         % (hands.shape,))
+    if counts.shape != (4,):
+        raise ValueError("counts must hold one card count per seat, got %r"
+                         % (counts.shape,))
+    if trick_cards.shape[0] != trick_players.shape[0]:
+        raise ValueError("%d cards played to the trick but %d players named"
+                         % (trick_cards.shape[0], trick_players.shape[0]))
+    if not 0 <= trick_no < _ALL:
+        raise ValueError("trick_no must be in 0..%d, got %d"
+                         % (_ALL - 1, trick_no))
+    if not 0 <= caller <= 3:
+        raise ValueError("caller must be in 0..3, got %d" % caller)
+    if not 0 <= to_act <= 3:
+        raise ValueError("to_act must be in 0..3, got %d" % to_act)
+    if not 0 <= caller_tricks <= trick_no:
+        raise ValueError("caller_tricks must be in 0..%d by trick %d, got %d"
+                         % (trick_no, trick_no, caller_tricks))
+
+    width = 3 if alone else 4
+    sitting = (caller + 2) % 4 if alone else -1
+    k = int(trick_cards.shape[0])
+    if k >= width:
+        raise ValueError("a %d-card trick already holds %d cards" % (width, k))
+
+    played_here = [int(p) for p in trick_players]
+    if len(set(played_here)) != len(played_here):
+        raise ValueError("a seat played twice to the same trick")
+    if sitting >= 0 and sitting in played_here:
+        raise ValueError("seat %d is sitting out and cannot have played"
+                         % sitting)
+    if to_act == sitting:
+        raise ValueError("seat %d is sitting out and cannot be to act"
+                         % sitting)
+    if to_act in played_here:
+        raise ValueError("seat %d has already played to this trick" % to_act)
+
+    # The seats must have acted in turn, and to_act must be next in that order.
+    for a, b in zip(played_here, played_here[1:] + [int(to_act)]):
+        if _next(a, sitting) != b:
+            raise ValueError("seat %d does not act after seat %d" % (b, a))
+
+    for seat in range(4):
+        held = int(counts[seat])
+        if not 0 <= held <= hands.shape[1]:
+            raise ValueError("seat %d holds %d cards, which does not fit a "
+                             "(4, %d, 2) hand array"
+                             % (seat, held, hands.shape[1]))
+        if seat == sitting:
+            if held != 0:
+                raise ValueError("seat %d is sitting out but holds %d cards"
+                                 % (seat, held))
+            continue
+        want = _ALL - trick_no - (1 if seat in played_here else 0)
+        if held != want:
+            raise ValueError("seat %d holds %d cards; at trick %d it should "
+                             "hold %d" % (seat, held, trick_no, want))
+
+    live = [tuple(int(v) for v in hands[p, i])
+            for p in range(4) for i in range(int(counts[p]))]
+    live += [tuple(int(v) for v in c) for c in trick_cards]
+    if len(set(live)) != len(live):
+        raise ValueError("the position contains duplicate cards")
+
+    return sitting, width, k
+
+
+def _position_state(hands, counts, trick_cards, trick_players, to_act, caller,
+                    caller_tricks, trick_no, alone):
+    """Validate, and lay out the mutable arrays one position solve runs on."""
+    hands = np.ascontiguousarray(hands, dtype=np.int64)
+    counts = np.ascontiguousarray(counts, dtype=np.int64)
+    trick_cards = np.ascontiguousarray(
+        trick_cards, dtype=np.int64).reshape(-1, 2)
+    trick_players = np.ascontiguousarray(
+        trick_players, dtype=np.int64).reshape(-1)
+
+    sitting, width, k = _check_position(
+        hands, counts, trick_cards, trick_players, to_act, caller,
+        caller_tricks, trick_no, alone)
+
+    suits, strs = encode_hands(hands)
+    t_suit = np.zeros((_ALL, width), dtype=np.int64)
+    t_str = np.zeros((_ALL, width), dtype=np.int64)
+    t_player = np.zeros((_ALL, width), dtype=np.int64)
+    if k:
+        played_s, played_v = _encode_cards(trick_cards)
+        t_suit[trick_no, :k] = played_s
+        t_str[trick_no, :k] = played_v
+        t_player[trick_no, :k] = trick_players
+
+    return (suits, strs, counts.copy(), t_suit, t_str, t_player,
+            sitting, width, k)
+
+
+def solve_position(hands, counts, trick_cards, trick_players, to_act, caller,
+                   caller_tricks, trick_no, alone=False):
+    """
+    Double-dummy value of a partially played hand, from the caller's side.
+
+    Args:
+        hands: (4, C, 2) vector cards. Seat p's live cards are the first
+            counts[p] slots of row p; the rest are ignored and may be anything.
+        counts: (4,) cards still held per seat. A loner's sitting partner is 0.
+        trick_cards: (k, 2) cards already played to the trick now on the table,
+            in the order they were played. Empty for a fresh trick.
+        trick_players: (k,) the seats that played them.
+        to_act: the seat whose turn it is.
+        caller: the seat that called trump.
+        caller_tricks: tricks the calling team has already taken.
+        trick_no: which trick is on the table, 0-based.
+        alone: True if the caller is playing alone.
+
+    Returns (score, nodes), the same shape of answer as `solve`.
+    """
+    alone = bool(alone)
+    (suits, strs, n, t_suit, t_str, t_player,
+     sitting, width, k) = _position_state(
+        hands, counts, trick_cards, trick_players, to_act, caller,
+        caller_tricks, trick_no, alone)
+
+    nodes = np.zeros(1, dtype=np.int64)
+    v = _descend(suits, strs, n, t_suit, t_str, t_player, k, int(to_act),
+                 int(caller) % 2, int(caller_tricks), int(trick_no), nodes,
+                 sitting)
+    return int(v), int(nodes[0])
+
+
+def position_moves(hands, counts, trick_cards, trick_players, to_act, caller,
+                   caller_tricks, trick_no, alone=False):
+    """
+    Value of every legal card for the seat to act, from the caller's side.
+
+    Returns (indices, values, nodes). `indices` are positions in
+    `hands[to_act, :counts[to_act]]`, in hand order, and `values` the
+    double-dummy value of playing each one. That is one solve per candidate
+    card, which is what a player choosing a card needs and what `solve` -- a
+    single value for the position as a whole -- does not give.
+
+    Arguments are `solve_position`'s; see it for their meaning.
+    """
+    alone = bool(alone)
+    (suits, strs, n, t_suit, t_str, t_player,
+     sitting, width, k) = _position_state(
+        hands, counts, trick_cards, trick_players, to_act, caller,
+        caller_tricks, trick_no, alone)
+
+    nodes = np.zeros(1, dtype=np.int64)
+    idx, vals, m = _position_moves(
+        suits, strs, n, t_suit, t_str, t_player, k, int(to_act),
+        int(caller) % 2, int(caller_tricks), int(trick_no), sitting, width,
+        nodes)
+    return idx[:m].copy(), vals[:m].copy(), int(nodes[0])

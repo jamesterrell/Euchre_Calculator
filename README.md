@@ -200,6 +200,51 @@ b.first_bid_options(deal)     # {'pass': .., 'order': .., 'order alone': ..}
 
 Defending alone is not modelled.
 
+## Players who cannot see your hand
+
+Everything above assumes perfect knowledge: every seat sees all four hands and
+plays the true optimum. That is the right baseline and the wrong opponent. The
+other mode puts four independent players at a table, each seeing only its own
+cards and the play so far, and lets them work it out.
+
+```python
+import random, game, table, players
+
+deal = game.deal_random(rng=random.Random(0), dealer=3)
+
+honest = [players.PIMCPlayer(samples=20, rng=random.Random(s)) for s in range(4)]
+result = table.play_deal(deal, honest, allow_loners=True)
+
+print(result)          # seat 2 ordered up diamonds -> 3 tricks, +1 to the caller
+print(result.auction)  # ('seat 0 pass', 'seat 1 pass', 'seat 2 orders up diamonds')
+```
+
+`PIMCPlayer` is Perfect-Information Monte Carlo. At each decision it samples
+layouts of the unseen cards consistent with everything its seat has watched
+happen -- the counts, the suits people have shown out of, where the up-card
+went -- solves each of those exactly, and takes the option with the best
+average. It is genuinely not omniscient, and it fails in recognisable ways: it
+cannot signal to its partner, and it is optimistic about plans that depend on
+knowing which layout it is really in.
+
+Swap in `players.PerfectPlayer` for the old behaviour, or mix them -- a table of
+two of each measures what seeing the other hands is actually worth:
+
+```bash
+python pimc_sweep.py 60                 # honest table vs perfect-knowledge table
+python pimc_sweep.py 60 --head-to-head  # the two against each other
+```
+
+To watch a single hand instead of a summary, `pimc_example.py` plays one deal
+and prints every decision in it -- each seat's own view, what it thought each
+option was worth, and which it took:
+
+```bash
+python pimc_example.py                  # the pinned example deal
+python pimc_example.py --seed 8         # a loner, made
+python pimc_example.py --perfect        # the same deal, double-dummy
+```
+
 ## Project Structure
 
 ```
@@ -212,6 +257,11 @@ Defending alone is not modelled.
 ├── n_game_sim.py             # Hand generation utilities
 ├── fast_search.py            # The solver: depth-first alpha-beta
 ├── reference_solver.py       # Independent pure-Python solver, used by the tests
+├── observation.py            # What one seat knows; sampling worlds from it
+├── table.py                  # The referee: play a deal out with four players
+├── players.py                # Decision rules: perfect, PIMC, random
+├── pimc_sweep.py             # Measures honest players against the baseline
+├── pimc_example.py           # One deal, every decision printed
 ├── interface.ipynb           # Interactive Jupyter notebook
 ├── tests/                    # Test suite
 │   ├── euchre_testkit.py     # Fixtures and independent rule oracles
@@ -224,6 +274,9 @@ Defending alone is not modelled.
 │   ├── test_reference_solver.py  # The oracle itself
 │   ├── test_solver.py        # fast_search
 │   ├── test_loners.py        # Going alone, solver and auction
+│   ├── test_position.py      # Partially played positions
+│   ├── test_observation.py   # What a seat knows, and world sampling
+│   ├── test_table.py         # The referee and the players
 │   └── test_fast_search.py   # Randomised regression sweep
 └── archive/                  # Superseded implementations, kept for reference
     ├── beta_approach/        # Breadth-first filter pipeline (not a minimax)
@@ -236,7 +289,7 @@ The tests use only the standard library's `unittest`, so there is nothing extra
 to install.
 
 ```bash
-python -m unittest discover             # the full suite, under a minute
+python -m unittest discover             # the full suite, ~3 minutes
 python -m unittest tests.test_solver    # one module
 python tests/test_fast_search.py 2000   # the randomised regression sweep
 ```
