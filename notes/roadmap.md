@@ -14,7 +14,8 @@ hands.
 - [x] bidding: order/pass round one, name-a-suit round two, stick-the-dealer
       -- `bidding.solve_bidding`
 - [x] pickup and discard -- `Deal.pick_up`, minimaxed in `bidding.order_up`
-- [ ] **loners** -- not modelled; a call is always four-handed
+- [x] **loners** -- `alone=` in the solver, `allow_loners=` in the auction
+      (opt-in). Defending alone is still not modelled.
 - [ ] **a game played out to 10 points** -- `Deal` is a single hand, there is no
       running score across hands
 
@@ -31,6 +32,7 @@ written. The DSL is a refactor to do later from knowledge, a guess if done now.
 
 - [x] EV forced to order -- `bidding.order_up`, ~2.3 ms/deal (6 solves)
 - [x] EV over the full auction -- `bidding.solve_bidding`, ~13 ms/deal (32 solves)
+- [x] EV of going alone -- `order_up(..., alone=True)`, `first_bid_options`
 - [ ] **EV against heuristic opponents** -- the version that actually matters
 
 Both existing ones are perfect-information. They answer different questions and
@@ -60,13 +62,29 @@ decision is ~20 ms. It yields a strong but genuinely non-omniscient opponent
 that fails in realistic ways (it cannot signal, and it suffers strategy fusion).
 Offered but not decided on either way.
 
+## A third finding, from the loner work
+
+**Loners are nearly invisible to a perfect-knowledge auction** -- they change the
+result on ~1% of deals (6 of 480), always by turning a made contract into a lone
+march. The scoring explains it: going alone only pays when you can take all five
+unaided, since 3-4 tricks is +1 either way and a euchre costs the same 2. At the
+eldest seat over 32 deals, going alone was better on 0, worse on 8, equal on 24.
+
+Real tables call loners far more often than 1%, and lose them. That is the same
+gap the passed-out finding below points at, from the other direction: perfect
+knowledge declines the speculative loner a human takes, and never throws in the
+hand a human folds. Both are bidding distortions, not play distortions.
+
 ## Structural notes worth not rediscovering
 
-- Loners were originally going to be expensive because `_search` hardcodes four
-  seats and a 4-card trick. That only matters if `fast_search` stays in the play
-  path. If trick play becomes heuristic-driven, loners live in the game loop
-  where a variable seat count is ordinary code, not surgery on a recursive njit
-  hot loop.
+- Loners were expected to be expensive because `_search` hardcodes four seats
+  and a 4-card trick. Resolved by writing a second recursion, `_search_alone`,
+  rather than parameterising the first: threading the trick width through the
+  single function was measured at 1.7x-2.5x slower per node on the four-handed
+  hot path, with identical node counts. The copy is guarded by running both
+  against the same two independent oracles. If trick play ever becomes
+  heuristic-driven, this goes away -- a variable seat count is ordinary code in
+  a game loop.
 - Bidding decisions need a hand evaluator, which is the thing this tool exists
   to produce. Expect that loop: bootstrap with crude hand-strength rules, feed
   measured EV back into them.

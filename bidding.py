@@ -17,11 +17,18 @@ whole bidding solve costs well under a tenth of a second.
 Scoring is **net points to team 0** (seats 0 and 2) throughout, so that one
 number can be maximised and minimised on a single scale:
 
-    caller on team 0, makes it   ->  +1, or +2 for a march
+    caller on team 0, makes it   ->  +1, or +2 for a march (+4 alone)
     caller on team 0, euchred    ->  -2   (team 1 scores 2)
-    caller on team 1, makes it   ->  -1, or -2
+    caller on team 1, makes it   ->  -1, or -2 (-4 alone)
     caller on team 1, euchred    ->  +2
     passed out                   ->   0
+
+**Loners** are off by default: `allow_loners=True` adds "and I'll play it alone"
+as a separate option beside every call. That doubles the tree -- each seat now
+chooses between passing, calling, and calling alone -- so a full auction runs
+about 72 solves instead of 36. Lone solves are far cheaper than four-handed
+ones, though, since a whole hand leaves the game, so the wall-clock cost is
+well under double. Defending alone is not modelled.
 
 Two details that a looser implementation gets wrong:
 
@@ -32,9 +39,11 @@ Two details that a looser implementation gets wrong:
   * Passing is not free. Its value is whatever the *rest* of the bidding
     produces, which may be the opponents naming a suit that is worse for you
     than the call you declined.
-
-Loners are not modelled yet: a call is always four-handed. That is the next
-structural piece, and it belongs in the play engine rather than here.
+  * Going alone is also not free, and ties resolve *against* it. A loner that
+    is worth no more than the same call four-handed is the same nonsense as
+    ordering up a hand you know will be euchred: the value is identical and the
+    reported contract is wrong. Options are listed pass, call, call-alone, and
+    `_best` keeps the first of equals.
 """
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -81,18 +90,26 @@ class Contract:
     bidding_round: int
     deal: Deal
     discard: Optional[r.Card] = None
+    alone: bool = False
 
     @property
     def caller_team(self) -> int:
         return team_of(self.caller)
 
+    @property
+    def sitting(self) -> Optional[int]:
+        """The caller's partner, if it is sitting out; None otherwise."""
+        return (self.caller + 2) % PLAYERS if self.alone else None
+
     def solve(self) -> int:
         """Trick-play value from the calling team's side."""
-        return play_value(self.deal, self.trump, self.caller)
+        return play_value(self.deal, self.trump, self.caller, self.alone)
 
     def __str__(self) -> str:
         how = "ordered up" if self.bidding_round == ROUND_ONE else "named"
         text = "seat %d %s %s" % (self.caller, how, r.suit_name(self.trump))
+        if self.alone:
+            text += " alone (seat %d sits out)" % self.sitting
         if self.discard is not None:
             text += " (dealer pitched %s)" % r.card_name(self.discard)
         return text
@@ -116,14 +133,16 @@ class Outcome:
         return "%s -> %+d to team 0" % (self.contract, self.value)
 
 
-def play_value(deal: Deal, trump: int, caller: int) -> int:
+def play_value(deal: Deal, trump: int, caller: int, alone: bool = False) -> int:
     """
     Double-dummy trick-play value of a settled deal, from the caller's side.
 
-    Play always begins to the dealer's left, whoever called.
+    Play always begins to the dealer's left, whoever called. With `alone` the
+    caller's partner sits out; if that partner is the eldest hand, the lead
+    passes on to the next live seat, which the solver handles.
     """
     hands = r.deal_to_engine(deal.hands, trump)
-    return definitive_winner(hands, deal.first_bidder, caller)
+    return definitive_winner(hands, deal.first_bidder, caller, alone=alone)
 
 
 def _prefers(candidate: int, incumbent: int, seat: int) -> bool:
@@ -147,33 +166,53 @@ def _best(options, seat):
     return best
 
 
-def order_up(deal: Deal, caller: int) -> Tuple[int, Contract]:
+def order_up(deal: Deal, caller: int, alone: bool = False) -> Tuple[int, Contract]:
     """
     `caller` orders up the turned suit; the dealer picks up and discards.
 
     The discard is the *dealer's* decision, so it is chosen for the dealer's
     team -- which is the caller's opponent whenever the two are on opposite
     sides. Returns (net points to team 0, the resulting contract).
+
+    One case collapses: if `caller` goes alone and the dealer is the partner
+    sitting out, the dealer's whole hand leaves play, so every discard is worth
+    exactly the same and the choice is unobservable. Solving all six would be
+    six identical answers, so the up-card is pitched by convention and one
+    solve is done. `tests/test_loners.py` checks the six really do agree.
     """
     trump = deal.up_card.suit
     dealer = deal.dealer
+    sitting = (caller + 2) % PLAYERS if alone else None
+
+    if sitting == dealer:
+        after = deal.pick_up(discard=deal.up_card)
+        value = net_to_team0(play_value(after, trump, caller, alone), caller)
+        return value, Contract(trump, caller, ROUND_ONE, after,
+                               deal.up_card, alone)
+
     options = []
     for card in list(deal.hands[dealer]) + [deal.up_card]:
         after = deal.pick_up(discard=card)
-        value = net_to_team0(play_value(after, trump, caller), caller)
-        options.append((value, Contract(trump, caller, ROUND_ONE, after, card)))
+        value = net_to_team0(play_value(after, trump, caller, alone), caller)
+        options.append((value,
+                        Contract(trump, caller, ROUND_ONE, after, card, alone)))
     return _best(options, dealer)
 
 
-def name_suit(deal: Deal, caller: int, trump: int) -> Tuple[int, Contract]:
+def name_suit(deal: Deal, caller: int, trump: int,
+              alone: bool = False) -> Tuple[int, Contract]:
     """`caller` names `trump` in round two. The up-card stays turned down."""
     if trump == deal.up_card.suit:
         raise ValueError("the turned suit cannot be named in round two")
-    value = net_to_team0(play_value(deal, trump, caller), caller)
-    return value, Contract(trump, caller, ROUND_TWO, deal)
+    value = net_to_team0(play_value(deal, trump, caller, alone), caller)
+    return value, Contract(trump, caller, ROUND_TWO, deal, None, alone)
 
 
-def _round_two(deal, index, order, stick_the_dealer):
+def _alone_note(alone):
+    return " alone" if alone else ""
+
+
+def _round_two(deal, index, order, stick_the_dealer, allow_loners):
     if index == PLAYERS:
         return Outcome(None, 0, ("all pass",))
 
@@ -184,7 +223,8 @@ def _round_two(deal, index, order, stick_the_dealer):
     # Passing goes first so that ties resolve to passing; under
     # stick-the-dealer the last seat has no such option.
     if not (stick_the_dealer and is_dealer):
-        passed = _round_two(deal, index + 1, order, stick_the_dealer)
+        passed = _round_two(deal, index + 1, order, stick_the_dealer,
+                            allow_loners)
         options.append((passed.value,
                         Outcome(passed.contract, passed.value,
                                 ("seat %d passes" % seat,) + passed.line)))
@@ -192,35 +232,44 @@ def _round_two(deal, index, order, stick_the_dealer):
     for trump in r.SUITS:
         if trump == deal.up_card.suit:
             continue
-        value, contract = name_suit(deal, seat, trump)
-        options.append((value, Outcome(contract, value,
-                                       ("seat %d names %s"
-                                        % (seat, r.suit_name(trump)),))))
+        # Four-handed first, so a loner that gains nothing is declined.
+        for alone in (False, True) if allow_loners else (False,):
+            value, contract = name_suit(deal, seat, trump, alone)
+            options.append((value, Outcome(contract, value,
+                                           ("seat %d names %s%s"
+                                            % (seat, r.suit_name(trump),
+                                               _alone_note(alone)),))))
 
     return _best(options, seat)[1]
 
 
-def _round_one(deal, index, order, stick_the_dealer):
+def _round_one(deal, index, order, stick_the_dealer, allow_loners):
     if index == PLAYERS:
-        return _round_two(deal, 0, order, stick_the_dealer)
+        return _round_two(deal, 0, order, stick_the_dealer, allow_loners)
 
     seat = order[index]
 
-    value, contract = order_up(deal, seat)
-    ordered = Outcome(contract, value,
-                      ("seat %d orders up %s"
-                       % (seat, r.suit_name(deal.up_card.suit)),))
-
-    passed = _round_one(deal, index + 1, order, stick_the_dealer)
+    passed = _round_one(deal, index + 1, order, stick_the_dealer, allow_loners)
     passed = Outcome(passed.contract, passed.value,
                      ("seat %d passes" % seat,) + passed.line)
 
-    # Passing first, so a seat with nothing to gain declines rather than
-    # ordering up a contract it knows will be euchred.
-    return _best([(passed.value, passed), (ordered.value, ordered)], seat)[1]
+    # Passing first, then the four-handed call, then the loner: a seat with
+    # nothing to gain declines rather than ordering up a contract it knows will
+    # be euchred, and one that gains nothing by sitting its partner down keeps
+    # the partner in.
+    options = [(passed.value, passed)]
+    for alone in (False, True) if allow_loners else (False,):
+        value, contract = order_up(deal, seat, alone)
+        options.append((value, Outcome(contract, value,
+                                       ("seat %d orders up %s%s"
+                                        % (seat, r.suit_name(deal.up_card.suit),
+                                           _alone_note(alone)),))))
+
+    return _best(options, seat)[1]
 
 
-def solve_bidding(deal: Deal, stick_the_dealer: bool = False) -> Outcome:
+def solve_bidding(deal: Deal, stick_the_dealer: bool = False,
+                  allow_loners: bool = False) -> Outcome:
     """
     Solve the whole auction under perfect knowledge.
 
@@ -231,22 +280,59 @@ def solve_bidding(deal: Deal, stick_the_dealer: bool = False) -> Outcome:
     Args:
         deal: a freshly dealt hand, before any pickup.
         stick_the_dealer: if True, the dealer may not pass in round two.
+        allow_loners: if True, every call may also be made alone. Off by
+            default so that existing four-handed measurements stay comparable.
+            Measured effect: it changes the auction on about 1% of deals (6 of
+            480), always by turning a made contract into a lone march. It is an
+            extra option for *both* teams, so no direction is guaranteed for
+            either one -- team 0 loses ground on the deals where team 1 is the
+            side with the loner.
     """
     if deal.picked_up:
         raise ValueError("bidding starts before the up-card is picked up")
-    return _round_one(deal, 0, deal.bidding_order(), stick_the_dealer)
+    return _round_one(deal, 0, deal.bidding_order(), stick_the_dealer,
+                      allow_loners)
 
 
-def first_bid_choice(deal: Deal) -> Tuple[int, int]:
+def first_bid_choice(deal: Deal, allow_loners: bool = False) -> Tuple[int, int]:
     """
     What the eldest hand is choosing between: (value of ordering, of passing).
 
     Both are net points **to the first bidder's own team**, not to team 0, so
     the larger number is simply the better bid. This is the "should I order
-    this up?" question in its smallest form.
+    this up?" question in its smallest form. `first_bid_options` is the same
+    question with the loner spelled out as its own option.
+
+    `allow_loners` affects only the *passing* branch -- whether the seats after
+    this one may go alone. The ordering value is always the four-handed call,
+    which is what "should I order this up?" asks.
     """
     seat = deal.first_bidder
     order = deal.bidding_order()
     ordered, _ = order_up(deal, seat)
-    passed = _round_one(deal, 1, order, False)
+    passed = _round_one(deal, 1, order, False, allow_loners)
     return value_to(seat, ordered), value_to(seat, passed.value)
+
+
+def first_bid_options(deal: Deal, allow_loners: bool = True) -> dict:
+    """
+    Every first-bid option open to the eldest hand, on its own team's scale.
+
+    Returns {"pass": v, "order": v, "order alone": v} -- net points to the
+    first bidder's team, so the largest number is simply the best bid. The
+    "order alone" entry is dropped when `allow_loners` is False.
+
+    This is the question a calculator front end actually asks. The loner
+    usually loses it -- over 32 measured deals the eldest hand never gained by
+    going alone, and lost by it on 8 -- but when it wins it wins by two points,
+    which is exactly why it is worth showing rather than assuming.
+    """
+    seat = deal.first_bidder
+    order = deal.bidding_order()
+    passed = _round_one(deal, 1, order, False, allow_loners)
+
+    options = {"pass": value_to(seat, passed.value),
+               "order": value_to(seat, order_up(deal, seat)[0])}
+    if allow_loners:
+        options["order alone"] = value_to(seat, order_up(deal, seat, True)[0])
+    return options

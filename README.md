@@ -157,6 +157,8 @@ alpha-beta:
    cannot change the value
 4. **Forced-outcome cutoffs**: at a trick boundary, stop once the calling team
    can no longer reach 3 tricks, or has 3 with a march already impossible
+5. **Loners** (`alone=True`) run the same search over three seats: the caller's
+   partner is out of play, a trick is three cards, and a march pays 4
 
 ### Key Functions
 
@@ -170,6 +172,33 @@ alpha-beta:
 - **+2**: Calling team takes all 5 tricks (march/sweep)
 - **+1**: Calling team takes 3-4 tricks
 - **-2**: Calling team takes 0-2 tricks (gets euchred)
+- **+4**: All 5 tricks with the caller playing alone
+
+### Going alone
+
+`alone=True` sits the caller's partner down: its cards are dealt but never
+played, tricks are three cards instead of four, and taking all five pays 4.
+Three or four tricks is still 1 and a euchre still costs 2, so a loner is worth
+`-2`, `1` or `4` -- never 2.
+
+```python
+from fast_search import definitive_winner
+
+alone = definitive_winner(hands, starting_player=0, caller=0, alone=True)
+```
+
+In the auction it is opt-in, because it changes so little under perfect
+knowledge -- about 1% of deals -- and leaving it off keeps four-handed numbers
+comparable:
+
+```python
+import bidding as b
+
+out = b.solve_bidding(deal, allow_loners=True)
+b.first_bid_options(deal)     # {'pass': .., 'order': .., 'order alone': ..}
+```
+
+Defending alone is not modelled.
 
 ## Project Structure
 
@@ -194,6 +223,7 @@ alpha-beta:
 │   ├── test_n_game_sim.py    # Hand generation
 │   ├── test_reference_solver.py  # The oracle itself
 │   ├── test_solver.py        # fast_search
+│   ├── test_loners.py        # Going alone, solver and auction
 │   └── test_fast_search.py   # Randomised regression sweep
 └── archive/                  # Superseded implementations, kept for reference
     ├── beta_approach/        # Breadth-first filter pipeline (not a minimax)
