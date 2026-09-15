@@ -493,6 +493,27 @@ identical, a paired difference of exactly +0.000. That is the flat cost curve
 seen from the other side: a band that wide freezes every decision by ~800
 worlds, so the extra samples are genuinely inert rather than merely cheap.
 
+**The band changes what the players do, not just how long they take.** The
+same question -- `JS AS 9H 9D TC`, `9S` up, 10,000 deals at 10,000 eval sims,
+pass model `"zero"`, loners on, identical layouts both times:
+
+| epsilon | wall (10 workers) | EV to your team | you called | euchred | passed out |
+| ------- | ----------------- | --------------- | ---------- | ------- | ---------- |
+| 0.40    | **17.3 min**      | -0.451 +/- 0.030 | 67.3%     | 51.5%   | 0.2%       |
+| 0.15    | **48.4 min**      | -0.518 +/- 0.030 | 77.4%     | 53.5%   | 0.1%       |
+
+The EVs are about 0.07 apart, which is small and is roughly the drift measured
+against exact at 400 sims. **The calling rates are 10 points apart, which is
+not small.** A wider band resolves more near-ties by giving up on them, and
+"order it up" versus "pass" is exactly the kind of near-tie that gets given up
+on, so the two settings are recognisably different bidders that happen to score
+within a tenth of a point of each other. Do not read the close EVs as the band
+being harmless; read them as this hand being worth about the same either way.
+
+Note also that the drift has no consistent sign: at 400 eval sims epsilon 0.15
+scored *above* epsilon 0.40 and both scored above exact, and at 10,000 the
+order reverses. That is what an error of the same size as the noise looks like.
+
 Which means **`--player-eval-sims 10000 --epsilon 0.4` is not a 10,000-sample
 run.** It is an ~800-sample run that cannot be told apart from one, at that
 band. If the question is specifically whether decisions keep moving above a few
@@ -566,6 +587,16 @@ almost always finds something that looks positive, especially since the sim's
 estimates are optimistic to begin with. Getting a table to pass a deal out
 needs a model of what the *other* seats will do with it, which is exactly what
 neither pass model has. That is the next thing worth building.
+
+**Amended: it passes out about 0.2% of the time.** The sweeps above were too
+small to see it. A 10,000-deal `hand_ev.py` run on `JS AS 9H 9D TC` with `9S`
+up (pass model `"zero"`, loners on, epsilon 0.40) passed out **21 of 10,000**
+deals -- at which rate 60 deals predicts 0.1 pass-outs and 40 predicts 0.08, so
+seeing none of them was never evidence of never. The shape of the claim
+survives and the absolute version of it does not: passing out is rare rather
+than impossible, and it took a sweep three orders of magnitude bigger than the
+ones above to tell the difference. Worth re-reading as a caution about every
+other 0-of-60 in this file.
 
 **Loners move the way real tables move** -- 1.7% to 10%. Some of that is honest
 optimism about hands that might run. Some is mechanical: averaging over sampled
