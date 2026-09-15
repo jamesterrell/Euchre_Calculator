@@ -62,6 +62,17 @@ python pimc_sweep.py 60 --head-to-head    # what does seeing actually buy?
 python pimc_sweep.py 100 --pass-model zero --bid-samples 16
 ```
 
+And the EV of one pinned hand, which is the question the calculator exists to
+answer -- same PIMC sim table, but every sampled layout is played out rather
+than solved:
+
+```bash
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --seat 0 --dealer 3
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 2000 --player-eval-sims 50
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --both --deals 500
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 5000 --workers 8
+```
+
 `pimc_example.py` is the one to read first. It plays a single pinned deal and
 prints what every seat could see, what each of its options was worth, and which
 it took -- the working behind "the player takes the highest-EV move". Its
@@ -121,6 +132,7 @@ table.py           the referee: play a deal out with four player objects
 players.py         decision rules: GodModePlayer, PIMCPlayer, RandomPlayer
 pimc_sweep.py      measures a PIMC sim table against the God Mode one
 pimc_example.py    one deal, every decision narrated -- read this one first
+hand_ev.py         EV of one pinned hand, played out by a PIMC sim table
 tests/             the suite, see "Testing" below
   euchre_testkit.py  fixtures: named cards, line replay, and an exhaustive
                      no-pruning minimax used as the ground-truth oracle
@@ -277,6 +289,7 @@ table.py           the referee: drives a Deal through the auction and the play
 players.py         decision rules -- GodModePlayer, PIMCPlayer, RandomPlayer
 pimc_sweep.py      measures a PIMC sim table against the God Mode one
 pimc_example.py    one deal, narrated decision by decision
+hand_ev.py         EV of one pinned hand, played out by a PIMC sim table
 ```
 
 `PIMCPlayer.last_scores` holds the averaged value of every option from its most
@@ -418,11 +431,11 @@ twice with the teams swapped so seat and dealer advantages cancel exactly rather
 than statistically. Over 50 deals: **-1.26 +/- 0.36 points per deal** to the
 sim. A euchre is worth 2, for scale.
 
-**The sim over-calls, and it is not sampling noise.** The obvious suspicion about
-"take the best of several noisy averages" is the optimizer's curse, so it was
-checked directly: over the same 40 deals, at 5, 10 and 30 bid samples, the
-euchre rate was 48%, 45% and 48%. Flat. More search does not make it more
-careful.
+**The sim over-calls.** 43% of its contracts are euchred against God Mode's
+10%. How much of that is the optimizer's curse -- "take the best of several
+noisy averages" -- rather than the pass model below is **not settled**, and how
+far the sample count per decision has to go before a PIMC player's bidding
+stops moving is unmeasured. Do not assume it is flat.
 
 **Most of the over-calling is the pass model.** Same 40 deals with
 `pass_model="zero"`: the euchre rate falls to 20-28% and the average call goes
@@ -456,6 +469,43 @@ neither pass model has. That is the next thing worth building.
 optimism about hands that might run. Some is mechanical: averaging over sampled
 worlds destroys the exact ties that made the God Mode auction decline a loner
 worth no more than the same call four-handed.
+
+### The EV of one hand
+
+`hand_ev.py` is the other shape of the question. `pimc_sweep.py` asks what a
+PIMC sim table does in general; this asks what **one pinned hand** is worth to
+the seat holding it. `game.deal_around` pins your five cards, the up-card, your
+seat and the dealer, deals the other three seats at random, and `table.play_deal`
+plays every sampled layout out with four `PIMCPlayer`s.
+
+The difference from the God Mode answer is that the auction is *walked* rather
+than solved, so the reported EV includes the deals where the hand gets passed
+out, ordered up by somebody else, or over-called -- which is why the report
+breaks the mean down by who ended up with the contract.
+
+**Two nested sim counts, and they do different jobs.** `--deals` is the outer
+loop, the total hand sims, and it is the only one the error bar is on: outcomes
+run -4..+4 with a standard deviation near 2, so the 95% interval is about
+4/sqrt(deals). `--player-eval-sims` is how many worlds each player imagines per
+decision; it is never averaged into the reported mean, so it moves the mean
+itself rather than shrinking its interval. How far it has to go before PIMC
+decisions settle is **unmeasured** -- do not assume flatness in either
+direction.
+
+Cost is `deals x player_eval_sims` and nothing else. Measured on
+`JS AS 9H 9D TC` with `9S` up, pass model `"zero"`, loners on: 0.39 s per deal
+at 10 eval sims, so ~39 ms per sim, linear in both axes. That hand is the
+expensive case, since it gets ordered up nearly every deal and so plays all
+five tricks. `--workers` spreads deals over processes at a measured ~3x on a
+12-thread machine, not the 10x the core count suggests, and each worker pays the
+~20 s JIT warmup once. **The answer does not depend on the worker count** --
+every deal seeds itself from its own index, so serial and parallel runs agree
+exactly, which is the cheapest available check that the parallel path is sound.
+
+`--both` solves the same layouts in God Mode as well and reports the **paired**
+difference. Paired because both tables play identical layouts, so deal luck
+cancels deal by deal rather than statistically, and a few hundred deals separate
+the two where a few thousand would be needed unpaired.
 
 ## Archived approaches
 

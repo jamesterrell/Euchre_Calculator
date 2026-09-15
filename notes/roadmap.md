@@ -47,12 +47,19 @@ DSL is a refactor to do later from knowledge, a guess if done now.
 - [x] **EV against opponents who cannot see your hand** -- `pimc_sweep.py`.
       Not heuristic opponents, but not God Mode ones either, which was the
       distortion that mattered most.
+- [x] **EV of one pinned hand at a PIMC sim table** -- `hand_ev.py`. Pin your
+      five cards, the up-card, your seat and the dealer; every sampled layout
+      is *played out* rather than solved, so the number includes the deals the
+      hand gets passed out or over-called on. Cost is
+      `deals x player_eval_sims`, ~39 ms per sim on a hand that always gets
+      ordered up.
 - [ ] **EV against heuristic opponents** -- waiting on the heuristics above.
 
-Both existing ones are God Mode. They answer different questions and both have
-a place: `order_up` asks "what do I score if I order", `solve_bidding` asks
-"what happens to me holding this hand", which includes the deals where you pass
-and somebody else calls.
+The first three are God Mode. They answer different questions and all have a
+place: `order_up` asks "what do I score if I order", `solve_bidding` asks "what
+happens to me holding this hand", which includes the deals where you pass and
+somebody else calls, and `hand_ev.py` asks that last one again of a table that
+cannot see the hand.
 
 ## 4. Front end
 
@@ -87,7 +94,9 @@ What the PIMC sim did show, over the same deals:
 
 - it **over-calls badly** -- 43% of its contracts are euchred against 10% for
   God Mode, and the average call is worth slightly less than nothing;
-- that is **not sampling noise** -- 5, 10 and 30 samples give 48%, 45%, 48%;
+- how much of that is sampling noise is **unsettled** -- how far the samples
+  per decision have to go before a PIMC player's bidding stops moving is
+  unmeasured, so do not assume it is flat;
 - it is **mostly the pass model**. Pricing a pass by running the rest of the
   auction in God Mode makes declining look worse than it is, because God Mode
   always finds a call. `pass_model="zero"` cuts the euchre rate to 20-28% and
