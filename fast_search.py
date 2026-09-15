@@ -342,7 +342,7 @@ def _setup(hands, starting_player, caller, alone):
 
 @njit
 def solve(hands, starting_player, caller, alone=False):
-    """Score for the calling team under perfect play. Returns (score, nodes)."""
+    """God Mode score for the calling team. Returns (score, nodes)."""
     _validate(hands, starting_player, caller)
     suits, strs, n, sitting, leader, width = _setup(
         hands, starting_player, caller, alone)
@@ -731,7 +731,7 @@ def _position_state(hands, counts, trick_cards, trick_players, to_act, caller,
 def solve_position(hands, counts, trick_cards, trick_players, to_act, caller,
                    caller_tricks, trick_no, alone=False):
     """
-    Double-dummy value of a partially played hand, from the caller's side.
+    God Mode value of a partially played hand, from the caller's side.
 
     Args:
         hands: (4, C, 2) vector cards. Seat p's live cards are the first
@@ -767,10 +767,10 @@ def position_moves(hands, counts, trick_cards, trick_players, to_act, caller,
     Value of every legal card for the seat to act, from the caller's side.
 
     Returns (indices, values, nodes). `indices` are positions in
-    `hands[to_act, :counts[to_act]]`, in hand order, and `values` the
-    double-dummy value of playing each one. That is one solve per candidate
-    card, which is what a player choosing a card needs and what `solve` -- a
-    single value for the position as a whole -- does not give.
+    `hands[to_act, :counts[to_act]]`, in hand order, and `values` the God Mode
+    value of playing each. One solve per candidate card -- what a player
+    choosing a card needs, and what `solve` (a single value for the position)
+    does not give.
 
     Arguments are `solve_position`'s; see it for their meaning.
     """

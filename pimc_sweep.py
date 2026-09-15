@@ -1,38 +1,33 @@
 """
-Measure what happens when the players cannot see each other's hands.
+God Mode against the PIMC sim: what does seeing the other hands buy?
 
-Everything else in this repo answers a deal under perfect knowledge. This
-script plays the same deals twice -- once with a table that can see everything,
-once with a table that can only see its own cards and the play so far -- and
-reports where the two part company.
+Every deal is played twice -- once by a God Mode table that sees everything,
+once by a PIMC sim table that sees only its own cards and the play so far --
+and this reports where the two part company.
 
     python pimc_sweep.py                    # 40 deals, both tables
     python pimc_sweep.py 200 --samples 30   # more deals, more search
     python pimc_sweep.py 60 --head-to-head  # what does seeing actually buy?
     python pimc_sweep.py 100 --pass-model zero --bid-samples 16
 
-The three things worth watching, all of them places the roadmap predicted
-perfect knowledge would be misleading:
+Three things worth watching, all places God Mode was expected to mislead:
 
-  * **Passing out.** A double-dummy auction essentially never does it -- 0 of
-    1600 measured -- because every seat knows exactly how the rest of the
-    auction will go and can always find a call that is at worst harmless. Real
-    tables throw hands in constantly. An honest table should too.
-  * **Loners.** Perfect knowledge almost never calls one, because it only pays
-    when you can take all five unaided and it can see that you cannot. Real
-    players call them far more often, and lose them.
+  * **Passing out.** God Mode essentially never does it -- 0 of 1600 measured
+    -- because every seat knows how the auction will go and can always find a
+    call that is at worst harmless. Real tables throw hands in constantly.
+  * **Loners.** God Mode almost never calls one: it only pays if you take all
+    five unaided, and God Mode can see that you cannot. Real players call them
+    far more often, and lose them.
   * **Euchres.** A contract chosen without seeing the defence should fail more
     often than one chosen while seeing it.
 
-`--head-to-head` asks the other question: put PIMC on one team and perfect
-knowledge on the other and read the points off. Each deal is played twice with
-the teams swapped, so the seat and dealer advantages cancel exactly rather than
-statistically -- what is left is the price of not knowing.
+`--head-to-head` puts the PIMC sim on one team and God Mode on the other, each
+deal played twice with the teams swapped so seat and dealer advantages cancel
+exactly rather than statistically. What is left is the price of not knowing.
 
-Sizing: a PIMC decision costs (options x samples) double-dummy solves, and
-bidding is far more expensive per sample than card play because pricing a pass
-means running the rest of the auction. Reckon on a few seconds per deal at the
-defaults, plus the solver's ~15 s JIT warmup on the first call.
+Sizing: a PIMC decision costs (options x samples) solves, and bidding costs far
+more per sample than card play because pricing a pass means running the rest of
+the auction. A few seconds per deal at the defaults, plus ~15 s JIT warmup.
 """
 import argparse
 import random
@@ -133,7 +128,7 @@ def perfect_table():
 
 
 def mixed_table(args, seed, pimc_team):
-    """PIMC in one team's seats, perfect knowledge in the other's."""
+    """The PIMC sim in one team's seats, God Mode in the other's."""
     return [players.PIMCPlayer(samples=args.samples,
                                bid_samples=args.bid_samples,
                                pass_model=args.pass_model,
@@ -150,8 +145,8 @@ def show(profile):
 
 def compare(args):
     """Play every deal with both tables and report the two profiles."""
-    honest = Profile("PIMC (each seat sees only its own hand)")
-    perfect = Profile("perfect knowledge (every seat sees everything)")
+    honest = Profile("PIMC sim (each seat sees only its own hand)")
+    perfect = Profile("God Mode (every seat sees everything)")
 
     same_trump = same_caller = comparable = 0
     started = time.time()
@@ -175,7 +170,7 @@ def compare(args):
             same_caller += a.contract.caller == c.contract.caller
 
         if args.verbose:
-            print("  deal %3d  pimc: %-52s  dd: %s"
+            print("  deal %3d  pimc: %-52s  god: %s"
                   % (i + 1, a, c))
         elif (i + 1) % 10 == 0:
             print("  ... %d/%d deals, %.0fs"
@@ -202,11 +197,10 @@ def compare(args):
 
 def head_to_head(args):
     """
-    PIMC against perfect knowledge, with the teams swapped on every deal.
+    The PIMC sim against God Mode, teams swapped on every deal.
 
-    Playing each deal both ways cancels the seat and dealer advantages exactly,
-    so the remaining difference is attributable to what the players know rather
-    than to where they sat.
+    Playing each deal both ways cancels seat and dealer advantages exactly, so
+    what is left is down to what the players know, not where they sat.
     """
     margins = []
     started = time.time()
@@ -236,7 +230,7 @@ def head_to_head(args):
                   file=sys.stderr)
 
     mean, half = interval(margins)
-    print("\n  PIMC minus perfect knowledge, over %d deals played both ways"
+    print("\n  PIMC minus God Mode, over %d deals played both ways"
           % args.deals)
     print("    %-28s %+.3f +/- %.3f points per deal" % ("margin", mean, half))
     print("    %-28s %s" % ("reading",
@@ -258,7 +252,7 @@ def main(argv=None):
                              "far more each than card-play samples")
     parser.add_argument("--pass-model", default=players.PASS_DD,
                         choices=(players.PASS_DD, players.PASS_ZERO),
-                        help="how a PIMC player prices passing")
+                        help="how a PIMC sim player prices passing")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-loners", action="store_true",
                         help="forbid going alone, so the numbers stay "
@@ -267,13 +261,13 @@ def main(argv=None):
                         help="stick the dealer: the dealer may not pass in "
                              "round two")
     parser.add_argument("--head-to-head", action="store_true",
-                        help="PIMC against perfect knowledge instead of "
+                        help="the PIMC sim against God Mode instead of "
                              "profiling each table separately")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="print every deal")
     args = parser.parse_args(argv)
 
-    print("Euchre: what honest players do")
+    print("Euchre: God Mode vs the PIMC sim")
     print("  %d deals, %d play samples, %d bid samples, pass model %r%s"
           % (args.deals, args.samples, args.bid_samples, args.pass_model,
              "" if not args.no_loners else ", loners off"))

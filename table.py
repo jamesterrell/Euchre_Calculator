@@ -2,17 +2,16 @@
 Play a deal out with four independent players.
 
 Everything above this module answers the deal *at once*: `solve_bidding` runs
-the whole auction inside one call, and `definitive_winner` returns a score
-without ever naming a card anybody chose. That is the right shape for a
-baseline and the wrong shape for a question like "what happens when nobody can
-see the other hands", because a player who cannot see the other hands makes its
-decisions one at a time, on what it knows at the time, and gets to be wrong.
+the whole auction in one call, and `definitive_winner` returns a score without
+naming a card anybody chose. Right shape for a baseline, wrong shape for "what
+happens when nobody can see the other hands" -- a player who cannot see them
+decides one step at a time, on what it knows then, and gets to be wrong.
 
 So this is a referee. It holds the truth, asks each seat in turn what it wants
-to do, checks the answer is legal, and writes down what happened. It contains
-no strategy at all -- every decision comes from a player object in
-`players.py`. Swap the players and the same loop gives you a perfect-knowledge
-table, a PIMC table, or a table of coin flips.
+to do, checks the answer is legal, and writes down what happened. It holds no
+strategy -- every decision comes from a player object in `players.py`. Swap the
+players and the same loop gives a God Mode table, a PIMC sim table, or a table
+of coin flips.
 
     >>> import random, game, players
     >>> d = game.deal_random(rng=random.Random(0), dealer=3)
@@ -21,20 +20,17 @@ table, a PIMC table, or a table of coin flips.
     >>> result.value                            # net points to team 0
     1
 
-A player is any object with `bid`, `discard` and `play` methods; `players.py`
-documents the protocol and ships three of them. Each is handed a turn object carrying both
-the true `Deal` and that seat's `Observation`. Carrying both is deliberate: the
-referee genuinely knows everything, and which of the two a player reads is the
-entire difference between a perfect-knowledge opponent and an honest one.
-**A player that reads `turn.deal` is cheating by definition** -- `PerfectPlayer`
-does, on purpose, because that is what it is for.
+A player is any object with `bid`, `discard` and `play` methods. Each is handed
+a turn object carrying both the true `Deal` and that seat's `Observation`, and
+which of the two it reads is the entire difference between a God Mode opponent
+and an honest one. **A player that reads `turn.deal` is cheating by
+definition** -- `PerfectPlayer` does, on purpose.
 
-The trick-winner rule is not reimplemented here. Cards are pushed through
-`rotation.card_to_engine`, which is already tested as a bijection onto the
-solver's frame, and compared there -- so the left bower is trump for ordering
-because it is trump in the encoding, not because this module remembered to
-check for it. `tests/test_table.py` pins that against the solver's own
-`_resolve`.
+The trick-winner rule is not reimplemented here. Cards go through
+`rotation.card_to_engine`, already tested as a bijection onto the solver's
+frame, and are compared there -- so the left bower is trump for ordering
+because the encoding says so, not because this module remembered to check.
+`tests/test_table.py` pins it against the solver's own `_resolve`.
 """
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
@@ -162,9 +158,8 @@ def card_order(card: r.Card, trump: int) -> Tuple[int, int]:
     A card's (suit code, strength) in the solver's frame.
 
     Routed through `rotation.card_to_engine` rather than read off the natural
-    card, so that the left bower sorts as the second-highest trump here for the
-    same reason it does inside the search: the encoding says so. The
-    decomposition mirrors `fast_search.encode_hands` exactly.
+    card, so the left bower sorts as second-highest trump for the same reason
+    it does inside the search. Mirrors `fast_search.encode_hands` exactly.
     """
     x, y = r.card_to_engine(card, trump)
     if x > 0:
@@ -194,9 +189,9 @@ def legal_cards(hand: Sequence[r.Card], led: Optional[r.Card],
     """
     The cards a seat may play. Follow suit if you can; otherwise anything.
 
-    Following is the only restriction in Euchre -- there is no obligation to
-    win, to trump, or to play high. Everything else a good player does is
-    choice, which is why this returns a set rather than a card.
+    Following is the only restriction in Euchre -- no obligation to win, to
+    trump, or to play high. Everything else is choice, which is why this
+    returns a set rather than a card.
     """
     hand = tuple(hand)
     if led is None:
@@ -222,10 +217,9 @@ def _bid_options(deal: Deal, bidding_round: int, is_last: bool,
     """
     The bids open to a seat, passing first.
 
-    Listing passing first is not cosmetic: players are told to keep the first
-    of equals, so a seat with nothing to gain declines instead of calling a
-    contract it expects to lose. `bidding._best` does the same thing for the
-    same reason.
+    Not cosmetic: players keep the first of equals, so a seat with nothing to
+    gain declines rather than calling a contract it expects to lose.
+    `bidding._best` does the same, for the same reason.
     """
     options = []
     if not (stick_the_dealer and is_last and bidding_round == b.ROUND_TWO):
@@ -298,10 +292,10 @@ def run_auction(deal: Deal, players, stick_the_dealer: bool = False,
     """
     Run the auction one seat at a time. Returns (contract or None, bid log).
 
-    Unlike `bidding.solve_bidding` this does not search the bidding tree -- it
-    walks it once, taking whatever each player says. A table of perfect-
-    knowledge players reproduces `solve_bidding` exactly, which is how
-    `tests/test_table.py` checks the loop against the thing it generalises.
+    Unlike `bidding.solve_bidding` this does not search the tree -- it walks it
+    once, taking whatever each player says. A table of God Mode players
+    reproduces `solve_bidding` exactly, which is how `tests/test_table.py`
+    checks the loop against the thing it generalises.
     """
     if deal.picked_up:
         raise ValueError("bidding starts before the up-card is picked up")
@@ -342,9 +336,8 @@ def play_contract(contract: b.Contract, players) -> Tuple[int, tuple, tuple]:
     Play the five tricks out. Returns (caller tricks, plays, trick winners).
 
     Play always begins to the dealer's left. If that seat is sitting out a
-    loner the lead passes to the next live seat, which is the same rule
-    `fast_search._setup` applies and is easy to get wrong in the other
-    direction -- the lead does not belong to the caller.
+    loner the lead passes to the next live seat -- the same rule
+    `fast_search._setup` applies. The lead does not belong to the caller.
     """
     deal = contract.deal
     trump, caller, alone = contract.trump, contract.caller, contract.alone
@@ -407,9 +400,8 @@ def play_deal(deal: Deal, players, stick_the_dealer: bool = False,
     """
     Run one whole deal -- auction then play -- and score it.
 
-    `players` is four player objects indexed by seat; they need not be alike,
-    and a table of three PIMC players and one perfect-knowledge player is a
-    perfectly good experiment.
+    `players` is four player objects indexed by seat. They need not be alike:
+    three PIMC players and one God Mode player is a perfectly good experiment.
     """
     if len(players) != PLAYERS:
         raise ValueError("a table seats %d players, got %d"

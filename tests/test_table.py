@@ -1,29 +1,26 @@
 """
 Unit tests for table.py and players.py.
 
-Two things are being checked, and they are checked in very different ways.
+Two things are checked, in very different ways.
 
 **The referee** is checked against the rules directly. Its trick-winner rule is
-a second implementation of `fast_search._resolve`, so it is run against that one
-and against `euchre_testkit.winner_of` -- the no-shared-code oracle the rest of
-the suite already leans on -- over every trick a random table produces. Its
-legality rule is checked by putting `RandomPlayer` in all four seats, which will
-try every legal line including the silly ones, and asserting card conservation
-over the whole hand.
+a second implementation of `fast_search._resolve`, so it is run against that and
+against `euchre_testkit.winner_of` -- the no-shared-code oracle -- over every
+trick a random table produces. Its legality rule is checked by seating
+`RandomPlayer` everywhere, which tries every legal line including the silly
+ones, and asserting card conservation over the whole hand.
 
 **The players** are checked against the baseline they generalise. A table of
-four `PerfectPlayer`s is `bidding.solve_bidding` followed by
-`fast_search.definitive_winner`, expressed one decision at a time instead of all
-at once, so it has to give the same contract and the same score on every deal.
-That is the test that matters most in this file: the referee and the perfect
-player between them re-derive the existing answer through entirely new code, and
-`PIMCPlayer` then rides on the same machinery.
+four God Mode players is `bidding.solve_bidding` followed by
+`fast_search.definitive_winner`, one decision at a time instead of all at once,
+so it must give the same contract and score on every deal. That is the test
+that matters most here: referee and God Mode player between them re-derive the
+existing answer through entirely new code, and `PIMCPlayer` rides on it.
 
-PIMC itself cannot be tested for *quality* here -- there is no ground truth for
-"what should an honest player bid" and that is the whole reason the project
-exists. What is tested is that it is honest: it never touches `turn.deal`, it
-only ever returns a legal option, and a full sweep of hands played by it stays
-structurally sound.
+The PIMC sim cannot be tested for *quality* -- there is no ground truth for
+"what should an honest player bid", which is why the project exists. What is
+tested is that it is honest: it never touches `turn.deal`, it only returns
+legal options, and a full sweep played by it stays structurally sound.
 """
 import os
 import sys
@@ -179,7 +176,7 @@ class TestLegalCards(unittest.TestCase):
 
 class TestPerfectTableMatchesTheBaseline(unittest.TestCase):
     """
-    Four perfect players are solve_bidding, one decision at a time.
+    Four God Mode players are solve_bidding, one decision at a time.
 
     If these ever disagree, either the referee walks the auction differently
     from the way `bidding.py` searches it, or the player breaks ties on a
@@ -215,7 +212,7 @@ class TestPerfectTableMatchesTheBaseline(unittest.TestCase):
                 self.check(a_deal(seed, dealer=seed % 4), stick=True)
 
     def test_the_play_reaches_the_double_dummy_score(self):
-        # The auction picks a contract; playing it out double-dummy has to end
+        # The auction picks a contract; playing it out in God Mode has to end
         # on the score the solver gives that contract.
         for seed in range(6):
             deal = a_deal(seed, dealer=seed % 4)

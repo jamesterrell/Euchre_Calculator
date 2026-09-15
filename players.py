@@ -2,82 +2,69 @@
 Decision rules: the things that sit in the seats.
 
 `table.py` is a referee with no opinions. This is where opinions live. A player
-is any object with three methods -- `bid`, `discard` and `play` -- each handed a
-turn object and each returning one of the options on it. That is the whole
-protocol; there is no rule language and no registry, because the roadmap is
-explicit that the vocabulary should grow out of rules actually written rather
-than be guessed at up front.
+is any object with `bid`, `discard` and `play` methods, each handed a turn
+object and each returning one of the options on it. That is the whole protocol
+-- no rule language, no registry.
 
-Three are here:
+  * `PerfectPlayer` plays in God Mode: it sees all four hands and takes the
+    true optimum. Four of them reproduce `bidding.solve_bidding` followed by
+    `fast_search.definitive_winner` exactly, which pins the new machinery to
+    the old answer.
+  * `PIMCPlayer` sees only what its seat has seen, and runs a Perfect
+    Information Monte Carlo sim over that: sample layouts, solve each exactly,
+    take the best average.
+  * `RandomPlayer` picks uniformly among legal options -- a floor to measure
+    against, and a cheap way to shake out referee bugs.
 
-  * `PerfectPlayer` sees all four hands and plays the double-dummy optimum. A
-    table of four of them reproduces `bidding.solve_bidding` followed by
-    `fast_search.definitive_winner` exactly, which is what makes it useful --
-    it is the existing baseline expressed as players, so the new machinery can
-    be checked against the old answer.
-  * `PIMCPlayer` sees only what its seat has seen. At every decision it samples
-    layouts consistent with that, solves each one exactly, and takes the option
-    with the best average. This is the thing the roadmap called the unclaimed
-    middle rung.
-  * `RandomPlayer` picks uniformly among legal options. A floor to measure
-    against, and a cheap way to shake out legality bugs in the referee.
+## What the PIMC sim is, and is not
 
-## What PIMC actually is, and what it is not
+For each option, and each of N imagined deals, ask the exact solver what that
+option is worth; average; take the best. It is not a search over information
+sets and it does not know that it does not know. Two consequences:
 
-For each option, and for each of N imagined deals, ask the exact solver what
-that option is worth; average; take the best. It is not a search over
-information sets and it does not know that it does not know. Two consequences
-are worth having in mind before reading any number this produces:
+  * **Strategy fusion.** It scores each world as though it could play
+    differently in each, crediting itself with plans it cannot carry out --
+    "I finesse if the king is on my left" is scored as though it always guesses
+    right.
+  * **Non-locality.** It assumes opponents play the God Mode optimum for a hand
+    they cannot see either, so it expects defences no real player could find.
 
-  * **Strategy fusion.** It evaluates each world as though it could play
-    differently in each, so it credits itself with plans it cannot actually
-    carry out -- "I finesse if the king is on my left, otherwise I don't" gets
-    scored as though it will always guess right.
-  * **Non-locality.** It assumes the opponents will play the double-dummy
-    optimum for a hand they cannot see either, so it expects them to find
-    defences no real player could.
-
-Both make it optimistic. Neither makes it weak: PIMC is famously strong at
-trick-taking games in spite of them, and it fails in recognisably human ways --
-it cannot signal to its partner and cannot read a signal. What it gives this
-project is an opponent that is genuinely not omniscient, which is the thing
-perfect-knowledge bidding was distorting.
+Both make it optimistic; neither makes it weak. It fails in recognisably human
+ways -- it cannot signal to its partner or read a signal -- which is exactly
+what God Mode bidding was distorting.
 
 ## The cost, and the knobs
 
-A decision costs (options x samples) double-dummy solves. Card play is cheap,
-because a position solve part-way through a hand is far smaller than a whole
-one. Bidding is where the time goes, and nearly all of it goes to pricing
-*passing*: a pass is worth whatever the rest of the auction does, so valuing it
-means running the rest of the auction -- up to 36 solves per sampled world.
+A decision costs (options x samples) solves. Card play is cheap, since a
+mid-hand position solve is far smaller than a whole one. Bidding is where the
+time goes, and nearly all of it goes to pricing *passing*: a pass is worth
+whatever the rest of the auction does, so valuing it means running the rest of
+the auction -- up to 36 solves per sampled world.
 
-`pass_model` chooses how that is done:
+`pass_model` chooses how:
 
-    "dd"    price a pass by solving the rest of the auction in each sampled
-            world under perfect knowledge. Accurate about the shape of the
-            auction, and inconsistent in an obvious way -- inside the sample,
-            the other seats can see the hand this player is trying to hide. It
-            is also systematically pessimistic about passing, because perfect
-            knowledge essentially always finds a call: the pass branch reads
-            "an opponent ends up calling this" far more often than a real table
-            would, and the player calls too much to head that off.
-    "zero"  a pass is worth nothing. About 4x faster, and a markedly more
-            selective bidder -- a call has to beat literally nothing instead of
-            beating a pessimistically priced pass, so the marginal ones get
-            declined. Measured euchre rate is roughly half "dd"'s.
+    "dd"    price a pass by running the rest of the auction in God Mode inside
+            each sampled world. Accurate about the shape of the auction, and
+            inconsistent in an obvious way -- inside the sample, the other
+            seats can see the hand this player is hiding. Systematically
+            pessimistic about passing, because God Mode essentially always
+            finds a call, so the pass branch reads "an opponent calls this" far
+            more often than a real table would.
+    "zero"  a pass is worth nothing. About 4x faster and a markedly more
+            selective bidder; euchre rate is roughly half "dd"'s.
 
-**Neither is clearly stronger, and the obvious measurement says otherwise.**
-Head to head against perfect knowledge with the teams swapped on every deal,
-"dd" scores -1.26 +/- 0.36 points a deal and "zero" -1.34 +/- 0.36 over the same
-50 -- indistinguishable. "zero" looks far better on mean points *per call*
-(+0.65 against -0.17), but that average is taken only over the deals a player
-chose to call and drops whatever passing cost it, which is exactly the trap
-`bidding.py` names when it says passing is not free.
+**Neither is clearly stronger.** Head to head against God Mode with the teams
+swapped on every deal, "dd" scores -1.26 +/- 0.36 points a deal and "zero"
+-1.34 +/- 0.36 over the same 50 -- indistinguishable. "zero" looks far better on
+mean points *per call* (+0.65 vs -0.17), but that average covers only the deals
+a player chose to call and drops whatever passing cost it: the trap `bidding.py`
+names when it says passing is not free.
 
-Default is "dd". It is the one that actually tries to answer "what happens if I
-decline"; "zero" answers a different question and is the right tool when the
-sweep needs to be four times bigger.
+Default is "dd" -- the one that actually answers "what happens if I decline".
+"zero" answers a different question, and is the right tool when the sweep needs
+to be four times bigger.
 """
+
 import random
 from typing import List, Optional, Tuple
 
@@ -102,9 +89,8 @@ def to_seat(caller_value: int, caller: int, seat: int) -> int:
     """
     A caller's-perspective score, re-expressed for `seat`'s own team.
 
-    Every option a player weighs has to land on one scale before they can be
-    compared, and `seat`'s own team is the natural one: bigger is better, with
-    no sign convention to remember.
+    Every option has to land on one scale before it can be compared, and the
+    seat's own team is the natural one: bigger is better, no sign convention.
     """
     return caller_value if (seat % 2) == (caller % 2) else -caller_value
 
@@ -116,10 +102,9 @@ def _engine_position(hands, trump, caller, alone, current, to_act):
     """
     Lay a position out the way `fast_search.position_moves` wants it.
 
-    `hands` is the cards each seat still holds, as natural cards; `current` is
-    the trick in progress as (seat, card). The returned card array is indexed
-    the same way `hands[to_act]` is, so an index that comes back out of the
-    search names a card the caller already has in hand.
+    `hands` is each seat's remaining natural cards; `current` is the trick in
+    progress as (seat, card). The returned array is indexed the same way
+    `hands[to_act]` is, so an index out of the search names a card in hand.
     """
     sitting = (caller + 2) % PLAYERS if alone else None
     counts = np.array([0 if s == sitting else len(hands[s])
@@ -151,10 +136,10 @@ def _remaining(deal: Deal, plays) -> List[Tuple[r.Card, ...]]:
 
 def _card_values(hands, turn: "t.PlayTurn"):
     """
-    Double-dummy value of each legal card in one fully specified layout.
+    God Mode value of each legal card in one fully specified layout.
 
-    Returns {card: value from the calling team's side}. One solve per candidate
-    card, which is the unit of work every PIMC decision is built out of.
+    Returns {card: value to the calling team}. One solve per candidate card --
+    the unit of work every PIMC decision is built out of.
     """
     order = tuple(hands[turn.seat])
     arr, counts, trick_cards, trick_players = _engine_position(
@@ -171,12 +156,11 @@ def _pick(scored, order, tie_break=LOW, trump=None):
     """
     The best-scoring option, with ties broken deliberately rather than by luck.
 
-    Among options the search rates *identically* -- which is common, since a
-    Euchre hand is worth one of four numbers and most cards do not change which
-    one -- LOW throws the cheapest card. That is a strategy heuristic, but it
-    only ever chooses between moves of equal expected value, so it cannot cost
-    anything the model can see. FIRST keeps hand order instead, which is what
-    to use when measuring PIMC rather than trying to win with it.
+    Ties are common: a Euchre hand is worth one of four numbers and most cards
+    do not change which. LOW then throws the cheapest card -- a heuristic, but
+    one that only ever picks between moves of equal expected value, so it
+    cannot cost anything the model can see. FIRST keeps hand order instead,
+    which is what to use when measuring PIMC rather than winning with it.
     """
     best = max(scored[c] for c in order)
     tied = [c for c in order if scored[c] == best]
@@ -192,9 +176,8 @@ class RandomPlayer:
     """
     Picks uniformly among whatever is legal. No model of anything.
 
-    Useful for exactly two things: a floor to measure real players against, and
-    finding referee bugs, since it will cheerfully try every legal line
-    including the ones nobody sensible would reach.
+    A floor to measure against, and a referee-bug finder: it will try every
+    legal line, including the ones nobody sensible would reach.
     """
 
     def __init__(self, rng: Optional[random.Random] = None):
@@ -212,12 +195,12 @@ class RandomPlayer:
 
 class PerfectPlayer:
     """
-    Sees every hand and plays the double-dummy optimum. The existing baseline.
+    God Mode: sees every hand and plays the true optimum. The baseline.
 
-    Four of these at a table reproduce `bidding.solve_bidding` bid for bid and
-    `fast_search.solve_line` card for card, which is the point: it pins the new
-    referee to the old answer. It is also, of course, a cheat -- it reads
-    `turn.deal`, which no honest player may touch.
+    Four of these reproduce `bidding.solve_bidding` bid for bid and
+    `fast_search.solve_line` card for card, which pins the referee to the old
+    answer. It is a cheat by construction -- it reads `turn.deal`, which no
+    honest player may touch.
     """
 
     def __init__(self, tie_break: str = FIRST):
@@ -254,7 +237,7 @@ class PerfectPlayer:
 
 class PIMCPlayer:
     """
-    Perfect-Information Monte Carlo: solve the hands you might be in.
+    Perfect Information Monte Carlo sim: solve the hands you might be in.
 
     At every decision it draws `samples` layouts consistent with what its seat
     has seen, scores every option exactly in each, and takes the best average.
@@ -262,19 +245,16 @@ class PIMCPlayer:
 
     Args:
         samples: layouts drawn per card-play decision.
-        bid_samples: layouts drawn per bidding decision. Defaults to `samples`.
-            Bidding decisions cost far more per sample than card play does --
-            see `pass_model` -- so it is usually the one to turn down first.
+        bid_samples: layouts per bidding decision; defaults to `samples`. These
+            cost far more each -- see `pass_model` -- so turn this down first.
         pass_model: PASS_DD or PASS_ZERO; see the module docstring.
         tie_break: LOW or FIRST, for cards the search rates identically.
         rng: seed it for a reproducible player.
 
-    `solves` and `nodes` accumulate what it has spent, which is the honest way
-    to report the cost of a sweep. `last_scores` holds the averaged value of
-    every option from the most recent decision -- the numbers the choice was
-    actually made on, kept so that a front end or a narrated example can show
-    the working rather than just the answer. It is empty when there was nothing
-    to decide.
+    `solves` and `nodes` accumulate what it has spent. `last_scores` holds the
+    averaged value of every option from the most recent decision, so a front
+    end or a narrated example can show the working rather than just the answer;
+    it is empty when there was nothing to decide.
     """
 
     def __init__(self, samples: int = 20, bid_samples: Optional[int] = None,
@@ -343,9 +323,9 @@ class PIMCPlayer:
         """
         Which of the six to bury, judged the same way as everything else.
 
-        The dealer is the only seat that ever answers this, and it answers for
-        its *own* team -- which, when the opposition ordered it up, means
-        choosing the card that hurts the contract most.
+        Only the dealer ever answers this, and it answers for its *own* team --
+        so if the opposition ordered it up, it picks the card that hurts the
+        contract most.
         """
         observation = turn.observation
         up_card = observation.up_card       # public; turn.deal is not touched
@@ -398,10 +378,9 @@ class PIMCPlayer:
 
 def table_of(factory, n: int = PLAYERS, seed: Optional[int] = None):
     """
-    Four players from one factory, each with its own seeded rng if it takes one.
+    Four players from one factory, called with the seat number.
 
-    `factory` is called with the seat number. Seeding per seat rather than
-    globally keeps a sweep reproducible even though the seats consume random
-    numbers at rates that depend on what they decide to do.
+    Seeding per seat rather than globally keeps a sweep reproducible even
+    though seats consume random numbers at rates that depend on their choices.
     """
     return [factory(seat) for seat in range(n)]

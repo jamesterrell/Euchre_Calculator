@@ -1,6 +1,6 @@
 # The one-trump euchre
 
-A double-dummy position where the dealer is better off holding **one** trump
+A God Mode position where the dealer is better off holding **one** trump
 than two -- and it does not matter which one they keep. Found while checking
 whether the solver had a bug. It does not: three independent implementations
 agree, including an exhaustive no-pruning enumeration of the whole tree.

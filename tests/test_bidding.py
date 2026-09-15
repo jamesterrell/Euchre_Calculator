@@ -11,7 +11,7 @@ Two things here are easy to get subtly wrong and are tested hardest:
     opponents order it up, the dealer is picking up a card for a contract they
     want to fail, and will pitch whatever hurts the caller most.
 
-Perfect knowledge also does something worth knowing about: it essentially never
+God Mode also does something worth knowing about: it essentially never
 passes out. Over 1600 solved auctions no deal was thrown in, because somebody
 can nearly always find a call that is at worst harmless to their own team.
 """
@@ -276,7 +276,7 @@ class TestStickTheDealer(unittest.TestCase):
         Being forced to call can only cost the dealer's team, never help.
 
         Not vacuous: the rule changes the result on about 4% of deals (21 of
-        480 measured). It bites even though perfect knowledge rarely passes
+        480 measured). It bites even though God Mode rarely passes
         out, because removing the dealer's pass changes the value of that node
         and the earlier seats bid differently against the threat.
         """
