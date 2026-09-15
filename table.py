@@ -24,7 +24,7 @@ A player is any object with `bid`, `discard` and `play` methods. Each is handed
 a turn object carrying both the true `Deal` and that seat's `Observation`, and
 which of the two it reads is the entire difference between a God Mode opponent
 and an honest one. **A player that reads `turn.deal` is cheating by
-definition** -- `PerfectPlayer` does, on purpose.
+definition** -- `GodModePlayer` does, on purpose.
 
 The trick-winner rule is not reimplemented here. Cards go through
 `rotation.card_to_engine`, already tested as a bijection onto the solver's

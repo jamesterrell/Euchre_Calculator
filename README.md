@@ -57,7 +57,7 @@ print(result)          # seat 2 ordered up diamonds -> 3 tricks, +1 to the calle
 print(result.auction)  # ('seat 0 pass', 'seat 1 pass', 'seat 2 orders up diamonds')
 ```
 
-Swap in `players.PerfectPlayer` for God Mode, or mix them at one table.
+Swap in `players.GodModePlayer` for God Mode, or mix them at one table.
 
 ### What the two say about each other
 
@@ -84,7 +84,7 @@ python pimc_sweep.py 60                 # both tables, profiled side by side
 python pimc_sweep.py 60 --head-to-head  # the two against each other
 python pimc_example.py                  # one deal, every decision narrated
 python pimc_example.py --seed 8         # a loner, made
-python pimc_example.py --perfect        # the same deal, in God Mode
+python pimc_example.py --god-mode       # the same deal, in God Mode
 ```
 
 `pimc_example.py` is the one to read first. It plays a single pinned deal and
@@ -209,7 +209,7 @@ functions compile on first call in a fresh process, about 15 s.
 ├── reference_solver.py       # Independent pure-Python solver, used by tests
 ├── observation.py            # What one seat knows; sampling worlds from it
 ├── table.py                  # The referee: play a deal out with four players
-├── players.py                # Decision rules: God Mode, PIMC sim, random
+├── players.py                # GodModePlayer, PIMCPlayer, RandomPlayer
 ├── pimc_sweep.py             # God Mode against the PIMC sim, in bulk
 ├── pimc_example.py           # One deal, every decision printed
 ├── interface.ipynb           # One worked example, notebook form

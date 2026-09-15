@@ -6,8 +6,8 @@ is any object with `bid`, `discard` and `play` methods, each handed a turn
 object and each returning one of the options on it. That is the whole protocol
 -- no rule language, no registry.
 
-  * `PerfectPlayer` plays in God Mode: it sees all four hands and takes the
-    true optimum. Four of them reproduce `bidding.solve_bidding` followed by
+  * `GodModePlayer` sees all four hands and takes the true optimum. Four of
+    them reproduce `bidding.solve_bidding` followed by
     `fast_search.definitive_winner` exactly, which pins the new machinery to
     the old answer.
   * `PIMCPlayer` sees only what its seat has seen, and runs a Perfect
@@ -43,7 +43,7 @@ the auction -- up to 36 solves per sampled world.
 
 `pass_model` chooses how:
 
-    "dd"    price a pass by running the rest of the auction in God Mode inside
+    "god"   price a pass by running the rest of the auction in God Mode inside
             each sampled world. Accurate about the shape of the auction, and
             inconsistent in an obvious way -- inside the sample, the other
             seats can see the hand this player is hiding. Systematically
@@ -51,16 +51,16 @@ the auction -- up to 36 solves per sampled world.
             finds a call, so the pass branch reads "an opponent calls this" far
             more often than a real table would.
     "zero"  a pass is worth nothing. About 4x faster and a markedly more
-            selective bidder; euchre rate is roughly half "dd"'s.
+            selective bidder; euchre rate is roughly half "god"'s.
 
 **Neither is clearly stronger.** Head to head against God Mode with the teams
-swapped on every deal, "dd" scores -1.26 +/- 0.36 points a deal and "zero"
+swapped on every deal, "god" scores -1.26 +/- 0.36 points a deal and "zero"
 -1.34 +/- 0.36 over the same 50 -- indistinguishable. "zero" looks far better on
 mean points *per call* (+0.65 vs -0.17), but that average covers only the deals
 a player chose to call and drops whatever passing cost it: the trap `bidding.py`
 names when it says passing is not free.
 
-Default is "dd" -- the one that actually answers "what happens if I decline".
+Default is "god" -- the one that actually answers "what happens if I decline".
 "zero" answers a different question, and is the right tool when the sweep needs
 to be four times bigger.
 """
@@ -77,7 +77,7 @@ import table as t
 from fast_search import position_moves
 from game import Deal, PLAYERS
 
-PASS_DD = "dd"
+PASS_GOD_MODE = "god"
 PASS_ZERO = "zero"
 
 # Tie-breaks among options the search rates identically.
@@ -193,7 +193,7 @@ class RandomPlayer:
         return self.rng.choice(turn.legal)
 
 
-class PerfectPlayer:
+class GodModePlayer:
     """
     God Mode: sees every hand and plays the true optimum. The baseline.
 
@@ -247,7 +247,7 @@ class PIMCPlayer:
         samples: layouts drawn per card-play decision.
         bid_samples: layouts per bidding decision; defaults to `samples`. These
             cost far more each -- see `pass_model` -- so turn this down first.
-        pass_model: PASS_DD or PASS_ZERO; see the module docstring.
+        pass_model: PASS_GOD_MODE or PASS_ZERO; see the module docstring.
         tie_break: LOW or FIRST, for cards the search rates identically.
         rng: seed it for a reproducible player.
 
@@ -258,9 +258,9 @@ class PIMCPlayer:
     """
 
     def __init__(self, samples: int = 20, bid_samples: Optional[int] = None,
-                 pass_model: str = PASS_DD, tie_break: str = LOW,
+                 pass_model: str = PASS_GOD_MODE, tie_break: str = LOW,
                  rng: Optional[random.Random] = None):
-        if pass_model not in (PASS_DD, PASS_ZERO):
+        if pass_model not in (PASS_GOD_MODE, PASS_ZERO):
             raise ValueError("no such pass model: %r" % (pass_model,))
         self.samples = samples
         self.bid_samples = samples if bid_samples is None else bid_samples

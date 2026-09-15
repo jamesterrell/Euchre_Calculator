@@ -123,8 +123,8 @@ def pimc_table(args, seed):
             for s in range(4)]
 
 
-def perfect_table():
-    return [players.PerfectPlayer() for _ in range(4)]
+def god_mode_table():
+    return [players.GodModePlayer() for _ in range(4)]
 
 
 def mixed_table(args, seed, pimc_team):
@@ -133,7 +133,7 @@ def mixed_table(args, seed, pimc_team):
                                bid_samples=args.bid_samples,
                                pass_model=args.pass_model,
                                rng=random.Random(seed * 100 + s))
-            if s % 2 == pimc_team else players.PerfectPlayer()
+            if s % 2 == pimc_team else players.GodModePlayer()
             for s in range(4)]
 
 
@@ -146,7 +146,7 @@ def show(profile):
 def compare(args):
     """Play every deal with both tables and report the two profiles."""
     honest = Profile("PIMC sim (each seat sees only its own hand)")
-    perfect = Profile("God Mode (every seat sees everything)")
+    god_mode = Profile("God Mode (every seat sees everything)")
 
     same_trump = same_caller = comparable = 0
     started = time.time()
@@ -158,11 +158,11 @@ def compare(args):
         a = t.play_deal(deal, pimc_table(args, seed),
                         stick_the_dealer=args.stick,
                         allow_loners=not args.no_loners)
-        c = t.play_deal(deal, perfect_table(),
+        c = t.play_deal(deal, god_mode_table(),
                         stick_the_dealer=args.stick,
                         allow_loners=not args.no_loners)
         honest.add(a)
-        perfect.add(c)
+        god_mode.add(c)
 
         if not a.passed_out and not c.passed_out:
             comparable += 1
@@ -180,7 +180,7 @@ def compare(args):
     print()
     show(honest)
     print()
-    show(perfect)
+    show(god_mode)
 
     print("\n  auctions that agreed")
     if comparable:
@@ -192,7 +192,7 @@ def compare(args):
                  100.0 * same_caller / comparable))
     else:
         print("    (no deal produced a contract at both tables)")
-    return honest, perfect
+    return honest, god_mode
 
 
 def head_to_head(args):
@@ -250,8 +250,8 @@ def main(argv=None):
     parser.add_argument("--bid-samples", type=int, default=10,
                         help="layouts sampled per bidding decision; these cost "
                              "far more each than card-play samples")
-    parser.add_argument("--pass-model", default=players.PASS_DD,
-                        choices=(players.PASS_DD, players.PASS_ZERO),
+    parser.add_argument("--pass-model", default=players.PASS_GOD_MODE,
+                        choices=(players.PASS_GOD_MODE, players.PASS_ZERO),
                         help="how a PIMC sim player prices passing")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-loners", action="store_true",

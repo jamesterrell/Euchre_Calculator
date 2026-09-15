@@ -8,7 +8,7 @@ were worth, and which it took. Read this first to see what `PIMCPlayer` does.
     python pimc_example.py                    # the pinned example deal
     python pimc_example.py --pass-model zero  # call only on a positive number
     python pimc_example.py --samples 40       # think harder (and slower)
-    python pimc_example.py --perfect          # the same deal, in God Mode
+    python pimc_example.py --god-mode         # the same deal, in God Mode
     python pimc_example.py --quiet            # decisions only, no working
 
 ## How passing gets priced, and why a seat calls a hand it expects to lose
@@ -16,7 +16,7 @@ were worth, and which it took. Read this first to see what `PIMCPlayer` does.
 Every option is compared on one number, passing included, and the largest wins.
 So what a pass is *worth* decides how willing a seat is to bid:
 
-    --pass-model dd     (default) a pass is worth whatever the rest of the
+    --pass-model god    (default) a pass is worth whatever the rest of the
                         auction does -- each imagined deal is handed to the
                         God Mode auction and played out.
     --pass-model zero   a pass is worth nothing. Ties keep the first option and
@@ -29,11 +29,11 @@ turned down: a call worth -1 is still right if passing lets the opponents march
 for -2. That is defensive bidding, and `zero` cannot express it -- it treats
 every pass as though the hand were about to be thrown in.
 
-`dd` is not simply more willing to bid, or less. It prices each seat's pass on
+`god` is not simply more willing to bid, or less. It prices each seat's pass on
 that seat's own prospects, so one deal can push both ways: on `--seed 11` it
 values the eldest hand's pass at +0.94 (talking it out of a +0.69 call) and the
 dealer's at -1.94 (talking it into a -1.25 call). `zero` reverses both. In
-aggregate `dd` calls more often and is euchred about twice as much for it, but
+aggregate `god` calls more often and is euchred about twice as much for it, but
 head to head against God Mode the two are indistinguishable (-1.26 vs -1.34
 +/- 0.36 points a deal). `zero` runs ~4x faster. See `players.py`.
 
@@ -285,12 +285,12 @@ def main(argv=None):
                         help="layouts sampled per card-play decision")
     parser.add_argument("--bid-samples", type=int, default=16,
                         help="layouts sampled per bidding decision")
-    parser.add_argument("--pass-model", default=players.PASS_DD,
-                        choices=(players.PASS_DD, players.PASS_ZERO),
+    parser.add_argument("--pass-model", default=players.PASS_GOD_MODE,
+                        choices=(players.PASS_GOD_MODE, players.PASS_ZERO),
                         help="how a seat prices passing. 'zero' makes the rule "
                              "exactly 'call only if calling is worth more than "
                              "nothing'")
-    parser.add_argument("--perfect", action="store_true",
+    parser.add_argument("--god-mode", action="store_true",
                         help="use God Mode players instead, for "
                              "comparison on the same deal")
     parser.add_argument("--no-loners", action="store_true")
@@ -299,7 +299,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     deal = deal_random(rng=random.Random(args.seed), dealer=args.dealer)
-    kind = "God Mode" if args.perfect else "PIMC sim"
+    kind = "God Mode" if args.god_mode else "PIMC sim"
 
     print(RULE)
     print(" One deal, played by four %s players" % kind)
@@ -310,8 +310,8 @@ def main(argv=None):
           % deal.first_bidder)
 
     log = Log(show_scores=not args.quiet, pass_model=args.pass_model)
-    if args.perfect:
-        inner = [players.PerfectPlayer() for _ in range(PLAYERS)]
+    if args.god_mode:
+        inner = [players.GodModePlayer() for _ in range(PLAYERS)]
     else:
         inner = [players.PIMCPlayer(samples=args.samples,
                                     bid_samples=args.bid_samples,
@@ -323,7 +323,7 @@ def main(argv=None):
     print("\n" + THIN)
     print(" THE AUCTION")
     print(THIN)
-    if not args.perfect:
+    if not args.god_mode:
         if args.pass_model == players.PASS_ZERO:
             print("\n  A pass is priced at nothing, so a seat calls only if "
                   "calling beats 0.00.")
@@ -370,7 +370,7 @@ def main(argv=None):
     elif caller_tricks == 5:
         print("  A march -- all five tricks.")
 
-    if not args.perfect:
+    if not args.god_mode:
         spent = sum(p.solves for p in inner)
         print("\n  Between them the four seats solved %d complete Euchre hands "
               "to play this one." % spent)

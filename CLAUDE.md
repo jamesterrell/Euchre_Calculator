@@ -7,15 +7,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Two names, used consistently throughout the repo:
 
 - **God Mode** -- all four players see all 24 cards and play the true optimum.
-  `fast_search`, `bidding` and `players.PerfectPlayer` are God Mode. This is
+  `fast_search`, `bidding` and `players.GodModePlayer` are God Mode. This is
   the exact baseline, not a model of a real table.
 - **Perfect Information Monte Carlo (PIMC) sim** -- a player sees only its own
   cards and the play so far, samples layouts consistent with that, and solves
   each sampled layout in God Mode. `players.PIMCPlayer`, fed by
   `observation.py`, driven by `table.py`.
 
-The class is still named `PerfectPlayer` in code; "God Mode" is the prose name
-for what it does.
+The code uses the same names: `GodModePlayer`, `god_mode_table()`,
+`PASS_GOD_MODE` (`"god"`), and `pimc_example.py --god-mode`.
 
 ## Commands
 
@@ -118,7 +118,7 @@ fast_search.py     the solver: depth-first alpha-beta over the game tree
 reference_solver.py independent pure-Python solver, used only by the tests
 observation.py     one seat's information set, and sampling worlds from it
 table.py           the referee: play a deal out with four player objects
-players.py         decision rules: PerfectPlayer (God Mode), PIMCPlayer, Random
+players.py         decision rules: GodModePlayer, PIMCPlayer, RandomPlayer
 pimc_sweep.py      measures a PIMC sim table against the God Mode one
 pimc_example.py    one deal, every decision narrated -- read this one first
 tests/             the suite, see "Testing" below
@@ -274,7 +274,7 @@ independent players, each seeing only its own cards, deciding one at a time.
 ```
 observation.py     one seat's information set; sampling layouts consistent with it
 table.py           the referee: drives a Deal through the auction and the play
-players.py         decision rules -- PerfectPlayer (God Mode), PIMCPlayer, ...
+players.py         decision rules -- GodModePlayer, PIMCPlayer, RandomPlayer
 pimc_sweep.py      measures a PIMC sim table against the God Mode one
 pimc_example.py    one deal, narrated decision by decision
 ```
@@ -291,12 +291,12 @@ depending only on who is sitting at it.
 
 **Players are handed both the truth and their own view.** `turn.deal` is the
 whole table; `turn.observation` is that seat's information set. A player that
-reads `turn.deal` is cheating by definition -- `PerfectPlayer` does, on purpose.
+reads `turn.deal` is cheating by definition -- `GodModePlayer` does, on purpose.
 `tests/test_table.py` wraps `turn.deal` in a tripwire and asserts `PIMCPlayer`
 never touches it, because a peeking PIMC player would otherwise just look like
 an unusually strong one.
 
-**A table of four `PerfectPlayer`s reproduces `solve_bidding` exactly** -- same
+**A table of four `GodModePlayer`s reproduces `solve_bidding` exactly** -- same
 contract, same discard, same score, on every deal tested. That is the pin: the
 referee and the God Mode player re-derive the existing baseline through
 entirely new code, so the machinery is anchored to the old answer before the
@@ -373,7 +373,7 @@ expects opponents to find defences they cannot see). Both make it optimistic.
 Neither makes it weak.
 
 **Pricing a pass is nearly the whole cost of bidding.** A pass is worth whatever
-the rest of the auction does, so `pass_model="dd"` (the default) runs the rest
+the rest of the auction does, so `pass_model="god"` (the default) runs the rest
 of the auction in God Mode inside each sampled world -- up to 36 solves per
 sample. It is inconsistent in an obvious way, since inside the sample the other
 seats can see the hand this player is hiding, and it is still the best available
@@ -433,7 +433,7 @@ up calling this", and never "it comes back around to me".
 
 **But the better-behaved bidder is not a better player, and this is a trap
 worth knowing about.** Head to head against God Mode, teams swapped on every
-deal: `"dd"` scores -1.26 +/- 0.36 and `"zero"` scores -1.34 +/- 0.36 over the
+deal: `"god"` scores -1.26 +/- 0.36 and `"zero"` scores -1.34 +/- 0.36 over the
 same 50 deals. Indistinguishable. Mean points *per call* flattered `"zero"`
 only because it is averaged over the deals a player chose to call, and silently
 drops what the deals it passed on cost it. That is `bidding.py`'s "passing is
