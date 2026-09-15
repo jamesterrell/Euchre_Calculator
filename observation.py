@@ -1,45 +1,39 @@
 """
 What one seat knows, and the layouts that are consistent with it.
 
-`game.Deal` is the deal as God sees it. This module is the deal as a *player*
-sees it: their own five cards, the up-card and what became of it, every card
-that has been played face up, and nothing else. `bidding.py` and
-`fast_search.py` both take the God's-eye view, which is the right baseline and
-the wrong opponent -- see notes/roadmap.md. An `Observation` is the other view,
-and `sample_worlds` turns it into concrete deals a solver can chew on.
+`game.Deal` is the deal in God Mode. This module is the deal as a *player* sees
+it: their own five cards, the up-card and what became of it, every card played
+face up, and nothing else. `bidding.py` and `fast_search.py` both take the God
+Mode view -- the right baseline and the wrong opponent. An `Observation` is the
+other view, and `sample_worlds` turns it into concrete deals a solver can take.
 
-That pairing is the whole idea behind Perfect-Information Monte Carlo: a player
-cannot solve the hand it is in, because it does not know the hand it is in. So
-it invents a few dozen hands it *could* be in, solves each of those exactly,
-and plays the card that does best on average. The solving already exists. What
-was missing was the inventing, and inventing badly is the easy way to get a
+That pairing is the whole idea behind the Perfect Information Monte Carlo sim:
+a player cannot solve the hand it is in, because it does not know the hand it
+is in. So it invents a few dozen hands it *could* be in, solves each exactly,
+and plays the card that does best on average. The solving already existed; the
+inventing was what was missing, and inventing badly is the easy way to get a
 plausible-looking player that is quietly cheating or quietly stupid.
 
-Three kinds of knowledge go into a sampled world, and all three are real
-Euchre inference rather than bookkeeping:
+Three kinds of inference go into a sampled world, all real Euchre rather than
+bookkeeping:
 
   * **Counts.** Every seat has played the same number of cards, so how many
     each still holds is public.
-  * **Voids.** A seat that failed to follow a led suit holds none of it, and
-    that is remembered for the rest of the hand. The inference is done in
-    *effective* suits, so the left bower counts as trump: a player who follows
-    a club lead cannot do it with the left bower, and a player who ruffs a club
-    lead with it has not shown a club void by doing so.
-  * **The up-card.** Everyone watched it. If it was turned down it is buried
-    and nobody holds it. If it was ordered up the dealer took it, and unless
-    the dealer has since shown out of trump it is still in their hand -- which
-    is a much sharper constraint than letting it float free in the unseen pool.
+  * **Voids.** A seat that failed to follow a led suit holds none of it, for
+    the rest of the hand. Read in *effective* suits, so the left bower counts
+    as trump: following a club lead cannot be done with it, and ruffing a club
+    lead with it shows no club void.
+  * **The up-card.** Turned down, it is buried and nobody holds it. Ordered up,
+    the dealer took it, and unless the dealer has since shown out of trump it
+    is still in their hand -- much sharper than letting it float free.
 
-What is deliberately *not* modelled is inference from the bidding. A seat that
-ordered up almost certainly holds trump, and a seat that passed probably does
-not, and neither fact reaches the sampler: worlds are drawn as though the
-auction said nothing about anybody's cards. That makes PIMC players here
-somewhat worse than they could be, and it makes them worse in a specific
-direction -- they under-rate how strong the caller is. Fixing it means a
-bidding model, which is the thing the project is trying to measure, so the
-circularity is left open on purpose rather than closed with a guess.
+Inference from the *bidding* is deliberately not modelled: worlds are drawn as
+though the auction said nothing about anybody's cards. That makes PIMC players
+weaker than they could be, in a specific direction -- they under-rate the
+caller. Fixing it needs a bidding model, which is the thing this project is
+trying to produce, so the circularity is left open rather than guessed at.
 
-Imports `rotation` and `game` and nothing heavier; no numpy, no numba, no
+Imports `rotation` and `game` and nothing heavier -- no numpy, no numba, no
 solver. A front end can ask what a seat knows without compiling anything.
 """
 import random
@@ -63,11 +57,10 @@ def effective_suit(card: r.Card, trump: Optional[int]) -> int:
     """
     The suit a card follows and is followed by, once trump is called.
 
-    Only one card ever disagrees with its printed suit, and it is the reason
-    this function exists rather than `card.suit`: the left bower is trump. A
-    hand holding the jack of clubs with spades called is void in clubs as far
-    as the rules care, and a sampler that used the printed suit would hand that
-    player clubs it has already shown it cannot hold.
+    One card disagrees with its printed suit, and it is why this exists rather
+    than `card.suit`: the left bower is trump. A hand holding the jack of clubs
+    with spades called is void in clubs as far as the rules care, and a sampler
+    using the printed suit would deal it clubs it cannot hold.
     """
     if trump is None:
         return card.suit

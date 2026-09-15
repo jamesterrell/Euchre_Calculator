@@ -1,18 +1,17 @@
 """
-Bidding, solved under perfect knowledge.
+Bidding, solved in God Mode.
 
-This is the baseline, not the destination. Every seat here sees all four hands
-and picks the bid that is genuinely best, which no real player can do. What it
-gives you is a *correct* answer to "was this hand worth ordering up", against
-which heuristic bidders can later be measured. Replace the decision rule, keep
-the machinery.
+The baseline, not the destination: every seat sees all four hands and picks the
+bid that is genuinely best, which no real player can do. What it gives you is a
+*correct* answer to "was this hand worth ordering up", against which heuristic
+bidders can be measured. Replace the decision rule, keep the machinery.
 
-The bidding tree is small enough to solve exactly. Round one is a chain of four
-order-or-pass decisions, and an order ends it; round two is a chain of four
-name-a-suit-or-pass decisions. Each leaf is one double-dummy trick-play solve.
-That comes to at most 36 solves per deal -- 24 for round one, since ordering up
-forces the dealer to choose among six discards, and 12 for round two -- so a
-whole bidding solve costs well under a tenth of a second.
+The tree is small enough to solve exactly. Round one is a chain of four
+order-or-pass decisions and an order ends it; round two is four
+name-a-suit-or-pass decisions. Each leaf is one God Mode trick-play solve, so
+at most 36 solves per deal -- 24 for round one, since ordering up forces the
+dealer to choose among six discards, plus 12 for round two. Well under a tenth
+of a second.
 
 Scoring is **net points to team 0** (seats 0 and 2) throughout, so that one
 number can be maximised and minimised on a single scale:
@@ -23,27 +22,22 @@ number can be maximised and minimised on a single scale:
     caller on team 1, euchred    ->  +2
     passed out                   ->   0
 
-**Loners** are off by default: `allow_loners=True` adds "and I'll play it alone"
-as a separate option beside every call. That doubles the tree -- each seat now
-chooses between passing, calling, and calling alone -- so a full auction runs
-about 72 solves instead of 36. Lone solves are far cheaper than four-handed
-ones, though, since a whole hand leaves the game, so the wall-clock cost is
-well under double. Defending alone is not modelled.
+**Loners** are off by default: `allow_loners=True` adds "and alone" beside
+every call, doubling the tree to ~72 solves per auction. Lone solves are far
+cheaper, so wall-clock cost rises well under double. Defending alone is not
+modelled.
 
-Two details that a looser implementation gets wrong:
+Three details a looser implementation gets wrong:
 
-  * The **dealer** chooses the discard, not the caller. When the opposing team
-    orders it up, the dealer is picking up a card for a contract they want to
-    fail, and will throw whatever hurts the caller most. That is real Euchre,
-    and it is minimaxed here rather than assumed away.
-  * Passing is not free. Its value is whatever the *rest* of the bidding
-    produces, which may be the opponents naming a suit that is worse for you
-    than the call you declined.
-  * Going alone is also not free, and ties resolve *against* it. A loner that
-    is worth no more than the same call four-handed is the same nonsense as
-    ordering up a hand you know will be euchred: the value is identical and the
-    reported contract is wrong. Options are listed pass, call, call-alone, and
-    `_best` keeps the first of equals.
+  * The **dealer** chooses the discard, not the caller. Ordered up by the
+    opposition, the dealer is taking a card into a contract they want to fail
+    and throws whatever hurts the caller most. Minimaxed here, not assumed away.
+  * **Passing is not free.** Its value is whatever the *rest* of the bidding
+    produces, which may be worse for you than the call you declined.
+  * **Going alone is not free either, and ties resolve against it.** A loner
+    worth no more than the same call four-handed is the same nonsense as
+    ordering up a hand you know will be euchred. Options are listed pass, call,
+    call-alone, and `_best` keeps the first of equals.
 """
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -135,11 +129,11 @@ class Outcome:
 
 def play_value(deal: Deal, trump: int, caller: int, alone: bool = False) -> int:
     """
-    Double-dummy trick-play value of a settled deal, from the caller's side.
+    God Mode trick-play value of a settled deal, from the caller's side.
 
     Play always begins to the dealer's left, whoever called. With `alone` the
-    caller's partner sits out; if that partner is the eldest hand, the lead
-    passes on to the next live seat, which the solver handles.
+    caller's partner sits out, and if that partner is the eldest hand the lead
+    passes to the next live seat -- the solver handles it.
     """
     hands = r.deal_to_engine(deal.hands, trump)
     return definitive_winner(hands, deal.first_bidder, caller, alone=alone)
@@ -154,10 +148,10 @@ def _best(options, seat):
     """
     The option `seat` prefers, on the team-0 scale.
 
-    Ties keep the first option, and callers list passing first, so a seat that
-    gains nothing by bidding will pass. Without that, perfect knowledge happily
-    orders up a hand it knows will be euchred whenever declining is equally
-    bad -- the value is the same, but the reported line is nonsense.
+    Ties keep the first option and callers list passing first, so a seat that
+    gains nothing by bidding passes. Without that, God Mode cheerfully orders
+    up a hand it knows will be euchred whenever declining is equally bad -- the
+    value is the same, but the reported line is nonsense.
     """
     best = options[0]
     for option in options[1:]:
@@ -271,22 +265,20 @@ def _round_one(deal, index, order, stick_the_dealer, allow_loners):
 def solve_bidding(deal: Deal, stick_the_dealer: bool = False,
                   allow_loners: bool = False) -> Outcome:
     """
-    Solve the whole auction under perfect knowledge.
+    Solve the whole auction in God Mode.
 
     Every seat sees every hand and bids to maximise its own team's net points,
     knowing how the rest of the auction and the play will go. Returns the
-    contract that survives, or a passed-out Outcome worth 0.
+    surviving contract, or a passed-out Outcome worth 0.
 
     Args:
         deal: a freshly dealt hand, before any pickup.
         stick_the_dealer: if True, the dealer may not pass in round two.
         allow_loners: if True, every call may also be made alone. Off by
-            default so that existing four-handed measurements stay comparable.
-            Measured effect: it changes the auction on about 1% of deals (6 of
-            480), always by turning a made contract into a lone march. It is an
-            extra option for *both* teams, so no direction is guaranteed for
-            either one -- team 0 loses ground on the deals where team 1 is the
-            side with the loner.
+            default so existing four-handed measurements stay comparable. It
+            changes the auction on ~1% of deals (6 of 480), always by turning a
+            made contract into a lone march. It is an extra option for *both*
+            teams, so no direction is guaranteed either way.
     """
     if deal.picked_up:
         raise ValueError("bidding starts before the up-card is picked up")
@@ -352,12 +344,11 @@ def rest_of_auction(deal: Deal, index: int, order=None,
                     allow_loners: bool = False,
                     bidding_round: int = ROUND_ONE) -> Outcome:
     """
-    The auction from `index` onward, solved under perfect knowledge.
+    The auction from `index` onward, solved in God Mode.
 
-    This is what passing is worth. A seat that declines a call does not get
-    zero -- it gets whatever the remaining seats do, which can be worse than
-    the call it turned down, and that is the whole reason passing has to be
-    priced rather than assumed free.
+    This is what passing is worth. A seat that declines does not get zero -- it
+    gets whatever the remaining seats do, which can be worse than the call it
+    turned down. That is why passing is priced rather than assumed free.
 
     Args:
         deal: the deal, before any pickup.
@@ -376,9 +367,9 @@ def rest_of_auction(deal: Deal, index: int, order=None,
 
 def best_discard(deal: Deal, caller: int, alone: bool = False):
     """
-    The card the dealer pitches on being ordered up, under perfect knowledge.
+    The card the dealer pitches on being ordered up, in God Mode.
 
     Chosen for the *dealer's* team, which is the point: ordered up by the
-    opposition, the dealer is taking a card into a contract they want to fail.
+    opposition, it is taking a card into a contract it wants to fail.
     """
     return order_up(deal, caller, alone)[1].discard

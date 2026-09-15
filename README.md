@@ -1,211 +1,49 @@
 
 # Euchre Calculator
 
-An advanced Euchre game simulator that uses tree search algorithms to determine optimal play and calculate win probabilities. This tool helps Euchre players make strategic decisions by simulating all possible game outcomes assuming perfect play by all participants.
+A Euchre engine that answers a hand two ways: **God Mode**, where all four
+players see all 24 cards and play the true optimum, and the **Perfect
+Information Monte Carlo (PIMC) sim**, where each player sees only its own cards
+and works the rest out by guessing.
 
-## Overview
+Both run on the same exact solver. The difference is entirely in what the
+players are allowed to look at, which is the point -- the gap between the two
+numbers is the price of not being able to see.
 
-Euchre is a trick-taking card game where strategy revolves around bidding (calling trump) and playing cards optimally. This simulator models the game using:
+## The two modes
 
-- **Vector-based card representation** for efficient computation
-- **Tree search algorithms** to explore all possible plays
-- **Optimal strategy simulation** assuming perfect play by all players
-- **Probability calculations** with statistical confidence intervals
+### God Mode
 
-## Card Representation
+Every seat sees all four hands, the kitty included, and bids and plays the
+genuinely best move. `bidding.solve_bidding` searches the whole auction and
+`fast_search` solves the trick play exactly, with alpha-beta that prunes only
+branches that provably cannot change the value.
 
-Cards are represented as 2D vectors for computational efficiency:
-
-```python
-# Suit encoding:
-# Hearts: negative x-axis [-14, 0] to [-9, 0] (Ace to 9)
-# Diamonds: positive x-axis [9, 0] to [14, 0] (9 to Ace)
-# Clubs: negative y-axis [0, -14] to [0, -9] (Ace to 9)
-# Spades (Trump): positive y-axis [0, 90] to [0, 140] (9 to right bower)
-
-# Example cards:
-[-14, 0]   # Ace of hearts
-[14, 0]    # Ace of diamonds
-[0, -14]   # Ace of clubs
-[0, 140]   # Right bower (Jack of spades - highest trump)
-[0, 135]   # Left bower (Jack of clubs - second highest trump)
-```
-
-This representation naturally captures suit relationships and trump hierarchy, with spades always designated as trump.
-
-### Calling a different suit
-
-The solver is written for spades as trump, so a hand with any other call is
-rotated into that frame first. `rotation.py` takes natural cards and does it:
+This is the *correct* answer to "was this hand worth ordering up", and it is
+not a model of a real table -- nobody at a table knows any of that. It is the
+baseline everything else is measured against.
 
 ```python
-from rotation import parse_hand, deal_to_engine, HEARTS
-from fast_search import definitive_winner
+import random, game, bidding as b
 
-hands = [parse_hand("JH JD AH KH QH"),   # both bowers, hearts called
-         parse_hand("JS JC AS KS QS"),
-         parse_hand("AD KD QD TD 9D"),
-         parse_hand("AC KC QC TC 9C")]
-
-score = definitive_winner(deal_to_engine(hands, HEARTS), starting_player=0, caller=0)
-```
-
-Note that the left bower follows the *colour* of trump, so hearts called makes
-the jack of diamonds trump, not the jack of clubs. `rotation.py` handles that.
-
-## Installation
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/yourusername/euchre-calculator.git
-   cd euchre-calculator
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip install numpy numba jupyter
-   ```
-
-3. **Launch the interactive interface:**
-   ```bash
-   jupyter notebook interface.ipynb
-   ```
-
-## Quick Start
-
-### Basic Simulation
-
-```python
-from deck import full_euchre_deck
-from dealer import Dealer
-from fast_search import definitive_winner
-import numpy as np
-
-# Create a dealer and deal random hands
-dealer = Dealer(deck=full_euchre_deck, players=4)
-dealer.deal_cards()
-hands = np.array([dealer.hand0, dealer.hand1, dealer.hand2, dealer.hand3])
-
-# Simulate optimal play assuming player 0 called trump
-score = definitive_winner(
-    dealt_hands=hands,
-    starting_player=0,  # Player 0 leads first trick
-    caller=0,          # Player 0 called trump
-    verbose=True        # Show detailed play-by-play
-)
-
-print(f"Final score for calling team: {score}")
-# Output: Final score for calling team: 2 (sweep), 1 (win), -2 (euchred)
-```
-
-### Probability Analysis with Stacked Hands
-
-```python
-from n_game_sim import generate_hands
-from fast_search import definitive_winner
-
-# Define a strong hand for analysis
-strong_hand = np.array([
-    [0, 140],  # Right bower
-    [0, 135],  # Left bower
-    [0, -9],   # 9 of clubs
-    [-9, 0],   # 9 of hearts
-    [9, 0]     # 9 of diamonds
-])
-
-upcard = np.array([[0, 90]])  # 9 of spades as upcard
-
-# Generate 500 random games with your hand stacked
-test_games = generate_hands(
-    n_games=500,
-    stack=strong_hand,
-    stack_player=1,      # You are player 1
-    up_card=upcard,
-    up_card_player=2     # Upcard to player 2
-)
-
-# Run simulations
-scores = np.zeros(500, dtype=np.int64)
-for i in range(500):
-    scores[i] = definitive_winner(
-        dealt_hands=test_games[i],
-        starting_player=3,  # Player 3 leads (after upcard pickup)
-        caller=0,          # Player 0 called trump
-        verbose=False
-    )
-
-# Calculate expected value and confidence interval
-mean_score = np.mean(scores)
-std_error = np.std(scores, ddof=1) / np.sqrt(len(scores))
-ci_lower = mean_score - 1.96 * std_error
-ci_upper = mean_score + 1.96 * std_error
-
-print(f"Expected score: {mean_score:.3f}")
-print(f"95% Confidence Interval: [{ci_lower:.3f}, {ci_upper:.3f}]")
-```
-
-## Core Algorithm
-
-`fast_search.py` walks the game tree once, depth first, and prunes with
-alpha-beta:
-
-1. **Move generation enforces legality**: follow the led suit if you can, and
-   nothing else is restricted -- all strategy comes out of the minimax
-2. **Minimax by parity**: a player maximises when they are on the calling team
-   and minimises otherwise
-3. **Alpha-beta pruning**: exact, not approximate -- it skips only branches that
-   cannot change the value
-4. **Forced-outcome cutoffs**: at a trick boundary, stop once the calling team
-   can no longer reach 3 tricks, or has 3 with a march already impossible
-5. **Loners** (`alone=True`) run the same search over three seats: the caller's
-   partner is out of play, a trick is three cards, and a march pays 4
-
-### Key Functions
-
-- **`definitive_winner()`**: main entry point, returns the calling team's score
-- **`solve()`**: the score plus the number of nodes visited
-- **`solve_line()`**: the score plus one optimal line of play
-- **`generate_hands()`**: creates multiple random hand configurations
-
-## Scoring System
-
-- **+2**: Calling team takes all 5 tricks (march/sweep)
-- **+1**: Calling team takes 3-4 tricks
-- **-2**: Calling team takes 0-2 tricks (gets euchred)
-- **+4**: All 5 tricks with the caller playing alone
-
-### Going alone
-
-`alone=True` sits the caller's partner down: its cards are dealt but never
-played, tricks are three cards instead of four, and taking all five pays 4.
-Three or four tricks is still 1 and a euchre still costs 2, so a loner is worth
-`-2`, `1` or `4` -- never 2.
-
-```python
-from fast_search import definitive_winner
-
-alone = definitive_winner(hands, starting_player=0, caller=0, alone=True)
-```
-
-In the auction it is opt-in, because it changes so little under perfect
-knowledge -- about 1% of deals -- and leaving it off keeps four-handed numbers
-comparable:
-
-```python
-import bidding as b
-
+deal = game.deal_random(rng=random.Random(0), dealer=3)
 out = b.solve_bidding(deal, allow_loners=True)
-b.first_bid_options(deal)     # {'pass': .., 'order': .., 'order alone': ..}
+
+print(out)                      # seat 1 ordered up hearts -> +2 to team 0
+print(b.first_bid_options(deal))  # {'pass': .., 'order': .., 'order alone': ..}
 ```
 
-Defending alone is not modelled.
+### The PIMC sim
 
-## Players who cannot see your hand
+Each player sees only its own five cards, the up-card, and the cards already
+played. At every decision it samples layouts of the unseen cards consistent
+with everything it has watched happen -- the counts, the suits people have
+shown out of, where the up-card went -- solves each of those in God Mode, and
+takes the option with the best average.
 
-Everything above assumes perfect knowledge: every seat sees all four hands and
-plays the true optimum. That is the right baseline and the wrong opponent. The
-other mode puts four independent players at a table, each seeing only its own
-cards and the play so far, and lets them work it out.
+It is genuinely not omniscient, and it fails in recognisable ways: it cannot
+signal to its partner, and it is optimistic about plans that depend on knowing
+which layout it is really in.
 
 ```python
 import random, game, table, players
@@ -219,99 +57,185 @@ print(result)          # seat 2 ordered up diamonds -> 3 tricks, +1 to the calle
 print(result.auction)  # ('seat 0 pass', 'seat 1 pass', 'seat 2 orders up diamonds')
 ```
 
-`PIMCPlayer` is Perfect-Information Monte Carlo. At each decision it samples
-layouts of the unseen cards consistent with everything its seat has watched
-happen -- the counts, the suits people have shown out of, where the up-card
-went -- solves each of those exactly, and takes the option with the best
-average. It is genuinely not omniscient, and it fails in recognisable ways: it
-cannot signal to its partner, and it is optimistic about plans that depend on
-knowing which layout it is really in.
+Swap in `players.PerfectPlayer` for God Mode, or mix them at one table.
 
-Swap in `players.PerfectPlayer` for the old behaviour, or mix them -- a table of
-two of each measures what seeing the other hands is actually worth:
+### What the two say about each other
+
+Measured over 60 deals at 20 play samples and 10 bid samples, loners allowed.
+Sampling error is large at this size -- these are shapes, not constants.
+
+|                           | PIMC sim     | God Mode |
+| ------------------------- | ------------ | -------- |
+| passed out                | 0%           | 0%       |
+| called alone              | 10%          | 1.7%     |
+| ordered up in round one   | 57/60        | 41/60    |
+| named a suit in round two | 3/60         | 19/60    |
+| euchred                   | 43% of calls | 10%      |
+| marched                   | 10% of calls | 28%      |
+| mean tricks to the caller | 2.75         | 3.55     |
+| mean points to the caller | -0.10        | +1.02    |
+
+Head to head with the teams swapped on every deal so seat and dealer advantages
+cancel exactly: **God Mode beats the PIMC sim by 1.26 +/- 0.36 points a deal**.
+A euchre is worth 2, for scale.
 
 ```bash
-python pimc_sweep.py 60                 # honest table vs perfect-knowledge table
+python pimc_sweep.py 60                 # both tables, profiled side by side
 python pimc_sweep.py 60 --head-to-head  # the two against each other
+python pimc_example.py                  # one deal, every decision narrated
+python pimc_example.py --seed 8         # a loner, made
+python pimc_example.py --perfect        # the same deal, in God Mode
 ```
 
-To watch a single hand instead of a summary, `pimc_example.py` plays one deal
-and prints every decision in it -- each seat's own view, what it thought each
-option was worth, and which it took:
+`pimc_example.py` is the one to read first. It plays a single pinned deal and
+prints what every seat could see, what each option was worth, and which it took.
+
+## Installation
 
 ```bash
-python pimc_example.py                  # the pinned example deal
-python pimc_example.py --seed 8         # a loner, made
-python pimc_example.py --perfect        # the same deal, double-dummy
+git clone https://github.com/yourusername/euchre-calculator.git
+cd euchre-calculator
+pip install numpy numba jupyter
+jupyter notebook interface.ipynb
 ```
 
-## Project Structure
+## Card representation
+
+Cards are 2D integer vectors. Suit is direction, strength is magnitude, and
+**spades is always trump** -- the whole engine is written for one fixed trump
+suit.
+
+```python
+# Hearts:   negative x  [-14, 0] .. [-9, 0]     (Ace to 9)
+# Diamonds: positive x  [9, 0] .. [14, 0]       (9 to Ace)
+# Clubs:    negative y  [0, -14] .. [0, -9]     (Ace to 9)
+# Spades:   positive y  [0, 90] .. [0, 140]     (trump, scaled 10x)
+
+[0, 140]   # right bower (jack of spades)
+[0, 135]   # left bower (jack of clubs -- inside the trump axis)
+[-14, 0]   # ace of hearts
+```
+
+Trump ranks are scaled up by 10x, so trump and plain strengths never overlap
+and no cross-suit comparison can go wrong. Suit membership is positional: never
+infer a card's suit from its raw numbers.
+
+### Calling a different suit
+
+Any other call is rotated into the canonical frame first. `rotation.py` takes
+natural `Card(suit, rank)` cards and does it:
+
+```python
+from rotation import parse_hand, deal_to_engine, HEARTS
+from fast_search import definitive_winner
+
+hands = [parse_hand("JH JD AH KH QH"),   # both bowers, hearts called
+         parse_hand("JS JC AS KS QS"),
+         parse_hand("AD KD QD TD 9D"),
+         parse_hand("AC KC QC TC 9C")]
+
+score = definitive_winner(deal_to_engine(hands, HEARTS), starting_player=0, caller=0)
+```
+
+Rotation is not a plain suit relabel: the left bower follows the *colour* of
+trump, so hearts called makes the jack of diamonds trump, not the jack of clubs.
+For every trump suit the mapping is a bijection onto the full deck, which is
+what keeps the solver from silently solving the wrong position.
+
+## Scoring
+
+Score is always from the calling team's perspective. Even seats `(0, 2)` are one
+team, odd `(1, 3)` the other.
+
+- **+2** all 5 tricks (march)
+- **+1** 3-4 tricks
+- **-2** 0-2 tricks (euchred)
+- **+4** all 5 tricks playing alone
+
+### Going alone
+
+`alone=True` sits the caller's partner down: its cards are dealt but never
+played, tricks are three cards instead of four, and taking all five pays 4.
+Three or four tricks is still 1 and a euchre still costs 2, so a loner is worth
+`-2`, `1` or `4` -- never 2.
+
+```python
+alone = definitive_winner(hands, starting_player=0, caller=0, alone=True)
+```
+
+In the auction loners are opt-in, because in God Mode they change the result on
+only ~1% of deals and leaving them off keeps four-handed numbers comparable.
+The PIMC sim calls them far more often -- 10% against 1.7% -- partly from honest
+optimism and partly because averaging over sampled worlds destroys the exact
+ties that made God Mode decline them.
+
+Defending alone is not modelled.
+
+## The solver
+
+`fast_search.py` walks the game tree once, depth first:
+
+1. **Move generation enforces legality** -- follow the led suit if you can, and
+   nothing else is restricted. All strategy comes out of the minimax.
+2. **Minimax by parity** -- a player maximises when on the calling team.
+3. **Alpha-beta pruning** -- exact, not approximate. Verified against an
+   exhaustive minimax with every cutoff removed: identical value on 60/60 hands
+   while visiting 0.31% of the nodes.
+4. **Forced-outcome cutoffs** at trick boundaries.
+5. **Loners** run the same search over three seats.
+
+Key entry points:
+
+- `definitive_winner()` -- the calling team's score
+- `solve()` -- the score plus nodes visited
+- `solve_line()` -- the score plus one optimal line of play
+- `solve_position()` / `position_moves()` -- a hand part-way through, which is
+  what the PIMC sim needs and a fresh-deal solver cannot give
+
+Solving costs ~0.5 ms/hand four-handed and ~0.23 ms alone. The `@njit`
+functions compile on first call in a fresh process, about 15 s.
+
+## Project structure
 
 ```
-├── README.md                 # This file
-├── deck.py                   # Card definitions and vector representations
+├── README.md
+├── deck.py                   # Card constants, in canonical spades-trump form
 ├── rotation.py               # Natural cards <-> the solver's canonical frame
 ├── game.py                   # Deal: hands, up-card, kitty, dealer seat
-├── bidding.py                # The auction, solved under perfect knowledge
+├── bidding.py                # The auction, solved in God Mode
 ├── dealer.py                 # Card dealing and hand management
-├── n_game_sim.py             # Hand generation utilities
+├── n_game_sim.py             # Batch hand generation
 ├── fast_search.py            # The solver: depth-first alpha-beta
-├── reference_solver.py       # Independent pure-Python solver, used by the tests
+├── reference_solver.py       # Independent pure-Python solver, used by tests
 ├── observation.py            # What one seat knows; sampling worlds from it
 ├── table.py                  # The referee: play a deal out with four players
-├── players.py                # Decision rules: perfect, PIMC, random
-├── pimc_sweep.py             # Measures honest players against the baseline
+├── players.py                # Decision rules: God Mode, PIMC sim, random
+├── pimc_sweep.py             # God Mode against the PIMC sim, in bulk
 ├── pimc_example.py           # One deal, every decision printed
-├── interface.ipynb           # Interactive Jupyter notebook
+├── interface.ipynb           # One worked example, notebook form
 ├── tests/                    # Test suite
-│   ├── euchre_testkit.py     # Fixtures and independent rule oracles
-│   ├── test_deck.py          # Card encoding
-│   ├── test_rotation.py      # Trump rotation
-│   ├── test_game.py          # Dealing, up-card, pickup and discard
-│   ├── test_bidding.py       # The auction
-│   ├── test_dealer.py        # Shuffling, stacking, dealing
-│   ├── test_n_game_sim.py    # Hand generation
-│   ├── test_reference_solver.py  # The oracle itself
-│   ├── test_solver.py        # fast_search
-│   ├── test_loners.py        # Going alone, solver and auction
-│   ├── test_position.py      # Partially played positions
-│   ├── test_observation.py   # What a seat knows, and world sampling
-│   ├── test_table.py         # The referee and the players
-│   └── test_fast_search.py   # Randomised regression sweep
 └── archive/                  # Superseded implementations, kept for reference
-    ├── beta_approach/        # Breadth-first filter pipeline (not a minimax)
-    └── legacy_approach/
 ```
 
 ## Testing
 
-The tests use only the standard library's `unittest`, so there is nothing extra
-to install.
+Standard library `unittest`; nothing extra to install.
 
 ```bash
-python -m unittest discover             # the full suite, ~3 minutes
+python -m unittest discover             # the full suite, ~70s with JIT warmup
 python -m unittest tests.test_solver    # one module
-python tests/test_fast_search.py 2000   # the randomised regression sweep
+python tests/test_fast_search.py 2000   # randomised regression sweep
 ```
 
-Run these from the repo root.
-
-
-## Applications
-
-- **Learning Tool**: Understand optimal Euchre strategy
-- **Decision Support**: Evaluate bidding decisions
-- **Hand Analysis**: Assess strength of specific card combinations
-- **Game Theory**: Study Nash equilibria in trick-taking games
+Run these from the repo root. The suite is layered deliberately:
+`test_solver.py` checks `fast_search` against `reference_solver.py`, and
+`test_reference_solver.py` checks *that* against an exhaustive minimax that
+prunes nothing and so cannot be wrong the way an alpha-beta search can.
 
 ## Dependencies
 
-- **NumPy**: Numerical computing and array operations
-- **Numba**: Just-in-time compilation for performance
-- **Jupyter**: Interactive notebook environment (optional)
+NumPy, Numba, and Jupyter (optional, for the notebook).
 
 ## License
 
 MIT License - see LICENSE file for details
-
-

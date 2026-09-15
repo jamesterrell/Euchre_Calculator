@@ -9,12 +9,11 @@ seat that has already played being asked to play again. None of those are
 errors the search can detect -- it will solve whatever it is handed and return
 a number -- so they are checked here instead.
 
-The strongest test in this file is `TestReplay`. Along a double-dummy optimal
-line the value of the position cannot change: both sides are already playing
-the best they have, so nothing either does moves the number. Walking
-`solve_line`'s own line one card at a time and re-solving from scratch at every
-ply therefore has a known answer at all 20 plies, and it exercises mid-trick
-entry, mid-hand entry and the trick-boundary handoff on every deal it touches.
+The strongest test here is `TestReplay`. Along a God Mode optimal line the
+position's value cannot change: both sides already play their best, so nothing
+either does moves the number. Walking `solve_line`'s own line one card at a
+time and re-solving from scratch therefore has a known answer at all 20 plies,
+and exercises mid-trick entry, mid-hand entry and the trick-boundary handoff.
 """
 import os
 import sys

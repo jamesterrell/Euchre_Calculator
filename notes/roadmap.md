@@ -1,13 +1,12 @@
 # Roadmap
 
 Where the project is going, in the user's own framing, with status as of
-2026-09-13 (end of the imperfect-information work; the bidding work ended at
+2026-09-13 (end of the PIMC sim work; the bidding work ended at
 `85f7f0f` and loners at `c9de0e5`).
 
-The motivating point: **perfect information is a fine baseline but not the
-answer.** People need to know what they can expect to score against opponents
-playing heuristics and gut instinct, not against opponents who can see all four
-hands.
+The motivating point: **God Mode is a fine baseline but not the answer.**
+People need to know what they can expect to score against opponents playing
+heuristics and gut instinct, not against opponents who can see all four hands.
 
 ## 1. Simulate the full game
 
@@ -29,7 +28,7 @@ hands.
 - [x] **the player abstraction** -- `players.py`. Three methods, `bid`,
       `discard` and `play`, each handed a turn object by `table.py`. Plain
       objects, no rule DSL, as planned.
-- [x] **three players** -- `PerfectPlayer` (the old baseline, re-expressed),
+- [x] **three players** -- `GodModePlayer` (the old baseline, re-expressed),
       `PIMCPlayer`, `RandomPlayer`.
 - [ ] **actual heuristics** -- a rule-based bidder and a rule-based card
       player. The mechanism is shipped; the vocabulary still has to be written,
@@ -46,14 +45,14 @@ DSL is a refactor to do later from knowledge, a guess if done now.
 - [x] EV over the full auction -- `bidding.solve_bidding`, ~13 ms/deal (32 solves)
 - [x] EV of going alone -- `order_up(..., alone=True)`, `first_bid_options`
 - [x] **EV against opponents who cannot see your hand** -- `pimc_sweep.py`.
-      Not heuristic opponents, but not omniscient ones either, which was the
+      Not heuristic opponents, but not God Mode ones either, which was the
       distortion that mattered most.
 - [ ] **EV against heuristic opponents** -- waiting on the heuristics above.
 
-Both existing ones are perfect-information. They answer different questions and
-both have a place: `order_up` asks "what do I score if I order", `solve_bidding`
-asks "what happens to me holding this hand", which includes the deals where you
-pass and somebody else calls.
+Both existing ones are God Mode. They answer different questions and both have
+a place: `order_up` asks "what do I score if I order", `solve_bidding` asks
+"what happens to me holding this hand", which includes the deals where you pass
+and somebody else calls.
 
 ## 4. Front end
 
@@ -62,55 +61,55 @@ pass and somebody else calls.
 
 ## Two findings that bear on the ordering
 
-**The double-dummy auction essentially never passes out** -- 0 of 1600 solved
+**The God Mode auction essentially never passes out** -- 0 of 1600 solved
 auctions. Somebody can nearly always find a call that is at worst harmless,
 because every seat knows exactly what every other seat will bid. Real tables
-throw hands in constantly. That is the sharpest evidence so far that perfect
-information distorts the *bidding* harder than it distorts the *play*, which
-argues for heuristic bidders ahead of heuristic card play.
+throw hands in constantly. That is the sharpest evidence so far that God Mode
+distorts the *bidding* harder than it distorts the *play*, which argues for
+heuristic bidders ahead of heuristic card play.
 
-**PIMC was the unclaimed middle rung; it is claimed.** `players.PIMCPlayer`,
+**The PIMC sim was the unclaimed middle rung; it is claimed.** `players.PIMCPlayer`,
 with `table.py` to drive it and `observation.py` to feed it. It cost one new
 solver entry point (`fast_search.solve_position`, for hands that are already
 part-played) and no change at all to the search itself.
 
 It did not resolve the passed-out finding above, which is the interesting part.
-A PIMC table passes out **0 of 60 deals**, exactly like the double-dummy one.
-Pricing a pass at literally zero does not change that either. Eight seats bid in
+A PIMC sim table passes out **0 of 60 deals**, exactly like the God Mode one,
+and pricing a pass at literally zero does not change that. Eight seats bid in
 turn and each round-two seat picks among three suits, so somebody almost always
-finds a call that looks positive -- and PIMC's estimates are optimistic, so the
-bar is low. **Throwing a hand in needs a model of what the other seats will do
-with it**, which neither a double-dummy continuation nor a flat zero provides.
+finds a call that looks positive -- and the sim's estimates are optimistic, so
+the bar is low. **Throwing a hand in needs a model of what the other seats will
+do with it**, which neither a God Mode continuation nor a flat zero provides.
 That is now the sharpest open question in the project, and it is a bidding
 question rather than a search question.
 
-What PIMC did show, over the same deals:
+What the PIMC sim did show, over the same deals:
 
 - it **over-calls badly** -- 43% of its contracts are euchred against 10% for
-  perfect knowledge, and the average call is worth slightly less than nothing;
+  God Mode, and the average call is worth slightly less than nothing;
 - that is **not sampling noise** -- 5, 10 and 30 samples give 48%, 45%, 48%;
-- it is **mostly the pass model**. Pricing a pass by solving the rest of the
-  auction under perfect knowledge makes declining look worse than it is, because
-  perfect knowledge always finds a call. `pass_model="zero"` cuts the euchre
-  rate to 20-28% and is ~4x faster -- but head to head the two are
-  indistinguishable (-1.26 vs -1.34 +/- 0.36). The per-call average flattered
-  the quieter bidder because it is taken only over the deals it chose to call;
+- it is **mostly the pass model**. Pricing a pass by running the rest of the
+  auction in God Mode makes declining look worse than it is, because God Mode
+  always finds a call. `pass_model="zero"` cuts the euchre rate to 20-28% and
+  is ~4x faster -- but head to head the two are indistinguishable (-1.26 vs
+  -1.34 +/- 0.36). The per-call average flattered the quieter bidder because it
+  is taken only over the deals it chose to call;
 - **loners go from 1.7% to 10%**, the direction real tables go;
-- **perfect information is worth 1.26 +/- 0.36 points a deal**, measured head to
-  head with the teams swapped on every deal.
+- **God Mode is worth 1.26 +/- 0.36 points a deal**, measured head to head with
+  the teams swapped on every deal.
 
 ## A third finding, from the loner work
 
-**Loners are nearly invisible to a perfect-knowledge auction** -- they change the
-result on ~1% of deals (6 of 480), always by turning a made contract into a lone
-march. The scoring explains it: going alone only pays when you can take all five
+**Loners are nearly invisible to a God Mode auction** -- they change the result
+on ~1% of deals (6 of 480), always by turning a made contract into a lone march.
+The scoring explains it: going alone only pays when you can take all five
 unaided, since 3-4 tricks is +1 either way and a euchre costs the same 2. At the
 eldest seat over 32 deals, going alone was better on 0, worse on 8, equal on 24.
 
 Real tables call loners far more often than 1%, and lose them. That is the same
-gap the passed-out finding below points at, from the other direction: perfect
-knowledge declines the speculative loner a human takes, and never throws in the
-hand a human folds. Both are bidding distortions, not play distortions.
+gap the passed-out finding points at, from the other direction: God Mode
+declines the speculative loner a human takes, and never throws in the hand a
+human folds. Both are bidding distortions, not play distortions.
 
 ## Structural notes worth not rediscovering
 
@@ -124,13 +123,13 @@ hand a human folds. Both are bidding distortions, not play distortions.
   a game loop.
 - Bidding decisions need a hand evaluator, which is the thing this tool exists
   to produce. Expect that loop: bootstrap with crude hand-strength rules, feed
-  measured EV back into them. PIMC is now available as the bootstrap -- it is a
-  hand evaluator, just an expensive and over-optimistic one.
+  measured EV back into them. The PIMC sim is now available as the bootstrap --
+  a hand evaluator, just an expensive and over-optimistic one.
 - Sampled worlds deliberately ignore the bidding: a seat that ordered up is not
   assumed to hold trump. Closing that needs a bidding model, which is the thing
   being measured, so the circularity is left open rather than guessed at. It is
-  the main reason a PIMC player here is weaker than it could be.
-- Swapping perfect-knowledge bidding for heuristics means replacing the decision
-  at `bidding.py`'s `_round_one` with a rule that only looks at
-  `deal.hands[seat]` and `deal.up_card`. Everything below it -- `play_value`,
-  the contract, the scoring -- stays as is.
+  the main reason a PIMC sim player here is weaker than it could be.
+- Swapping God Mode bidding for heuristics means replacing the decision at
+  `bidding.py`'s `_round_one` with a rule that only looks at `deal.hands[seat]`
+  and `deal.up_card`. Everything below it -- `play_value`, the contract, the
+  scoring -- stays as is.

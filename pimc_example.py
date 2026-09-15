@@ -1,82 +1,70 @@
 """
-One deal, played out loud by four Monte Carlo players.
+One deal, played out loud by four PIMC sim players.
 
-`pimc_sweep.py` plays hundreds of deals and reports the totals. This plays
-exactly one and narrates every decision in it -- what each seat can see, what
-its options were worth, and which one it took. It is the "show your working"
-version, and the thing to read first if you want to know what `PIMCPlayer`
-is actually doing.
+`pimc_sweep.py` plays hundreds of deals and reports totals. This plays exactly
+one and narrates every decision -- what each seat can see, what its options
+were worth, and which it took. Read this first to see what `PIMCPlayer` does.
 
     python pimc_example.py                    # the pinned example deal
     python pimc_example.py --pass-model zero  # call only on a positive number
     python pimc_example.py --samples 40       # think harder (and slower)
-    python pimc_example.py --perfect          # the same deal, double-dummy
+    python pimc_example.py --perfect          # the same deal, in God Mode
     python pimc_example.py --quiet            # decisions only, no working
 
 ## How passing gets priced, and why a seat calls a hand it expects to lose
 
 Every option is compared on one number, passing included, and the largest wins.
-So what a pass is *worth* decides everything about how willing a seat is to bid:
+So what a pass is *worth* decides how willing a seat is to bid:
 
     --pass-model dd     (default) a pass is worth whatever the rest of the
-                        auction does. Each imagined deal is handed to the
-                        perfect-knowledge auction and played out.
-    --pass-model zero   a pass is worth nothing. Since ties keep the first
-                        option and passing is listed first, this is exactly
-                        the rule "order up only if ordering up is positive".
+                        auction does -- each imagined deal is handed to the
+                        God Mode auction and played out.
+    --pass-model zero   a pass is worth nothing. Ties keep the first option and
+                        passing is listed first, so this is exactly the rule
+                        "order up only if ordering up is positive".
 
-The two differ because **passing is not free**. Declining does not end the deal
--- it hands it to the next seat, and what they do with it can be worse for you
-than the call you turned down. A seat holding a call worth -1 should still make
-it if passing lets the opponents march for -2. That is defensive bidding, it is
-real Euchre, and `--pass-model zero` cannot express it: it treats every pass as
-though the hand were about to be thrown in.
+They differ because **passing is not free**. Declining hands the deal to the
+next seat, and what they do with it can be worse for you than the call you
+turned down: a call worth -1 is still right if passing lets the opponents march
+for -2. That is defensive bidding, and `zero` cannot express it -- it treats
+every pass as though the hand were about to be thrown in.
 
-Note that `dd` is not simply *more* willing to bid, or simply less. It prices
-each seat's pass on that seat's own prospects, so the same deal can push in both
-directions at once -- on `--seed 11` it values the eldest hand's pass at a
-cheerful +0.94 (talking it out of a call worth +0.69) and the dealer's at -1.94
-(talking it into a call worth -1.25). Switching to `zero` reverses both. What
-the aggregate measurements say is only that `dd` calls more often overall and is
-euchred about twice as much for it.
+`dd` is not simply more willing to bid, or less. It prices each seat's pass on
+that seat's own prospects, so one deal can push both ways: on `--seed 11` it
+values the eldest hand's pass at +0.94 (talking it out of a +0.69 call) and the
+dealer's at -1.94 (talking it into a -1.25 call). `zero` reverses both. In
+aggregate `dd` calls more often and is euchred about twice as much for it, but
+head to head against God Mode the two are indistinguishable (-1.26 vs -1.34
++/- 0.36 points a deal). `zero` runs ~4x faster. See `players.py`.
 
-Where `zero` is exactly right rather than approximately: the last seat to speak
-in round two. If it passes, the deal really is thrown in for nothing, so both
-models price that pass at 0 and agree.
+Where `zero` is exactly right: the last seat to speak in round two. If it
+passes the deal really is thrown in for nothing, so both models agree.
 
-Measured, neither is clearly stronger -- head to head against perfect knowledge
-they are indistinguishable (-1.26 vs -1.34 +/- 0.36 points a deal), though
-`zero` is euchred about half as often and runs ~4x faster. See `players.py`.
+Other deals worth looking at:
 
-Other deals worth looking at, if this one starts to feel like the only one:
-
-    --seed 11              three seats pass and the dealer orders it up at an
+    --seed 11              three seats pass and the dealer orders up at an
                            expectation it knows is negative, because passing
-                           scored worse still. It is euchred. Run it again with
-                           --pass-model zero and the auction changes shape
-                           entirely: seat 0, whose pass was being priced at a
-                           cheerful +0.94, now compares its +0.69 call against
-                           0.00 and takes it, so the bidding ends at the first
-                           seat and never reaches the dealer.
+                           scored worse. It is euchred. With --pass-model zero
+                           the auction changes shape entirely: seat 0 compares
+                           its +0.69 call against 0.00, takes it, and the
+                           bidding never reaches the dealer.
     --seed 14              seat 2 calls and the *dealer is an opponent*, so the
                            discard is chosen to hurt the contract.
-    --seed 24 --dealer 2   nobody orders, the up-card is turned down, and the
-                           auction goes to a second round.
+    --seed 24 --dealer 2   the up-card is turned down and round two begins.
     --seed 8               a loner, made: four points.
 
-Every number printed under a decision is an average over sampled layouts, on
-that seat's own team's scale, so **bigger is always better and the largest one
-is the move taken**. Ties keep the first option listed, which is why passing is
-printed first.
+Every number under a decision is an average over sampled layouts, on that
+seat's own team's scale, so **bigger is better and the largest is the move
+taken**. Ties keep the first option, which is why passing prints first.
 
-The important thing to watch is the gap between what a seat knows and what is
-actually true. The referee prints all four hands at the top because it has
-them; no player ever sees that block. Each seat sees its own five cards, the
-up-card, and whatever has been played -- and every number it computes comes
-from guessing the rest, a few dozen times, and solving each guess exactly.
+What to watch is the gap between what a seat knows and what is true. The
+referee prints all four hands at the top; no player ever sees that block. Each
+seat sees its own five cards, the up-card and what has been played, and every
+number it computes comes from guessing the rest a few dozen times and solving
+each guess exactly.
 
-Nothing here is a test. `tests/test_table.py` is where the behaviour is
-checked; this file exists to be read.
+Nothing here is a test -- `tests/test_table.py` checks the behaviour. This file
+exists to be read.
 """
 import argparse
 import random
@@ -88,12 +76,11 @@ import rotation as r
 import table as t
 from game import PLAYERS, deal_random
 
-# Pinned rather than picked at random, so the commentary above stays true of
-# what actually prints. This deal was chosen because the left bower turns up on
-# both sides of its rule inside three tricks: with diamonds trump the jack of
-# hearts is trump and so cannot follow a heart lead, and the jack of diamonds is
-# trump and so must follow one. A player that read the printed suit would play
-# both of them wrongly, and the output would look perfectly reasonable.
+# Pinned rather than random, so the commentary above stays true of what prints.
+# Chosen because the left bower turns up on both sides of its rule inside three
+# tricks: with diamonds trump the jack of hearts is trump and cannot follow a
+# heart lead, and the jack of diamonds is trump and must follow one. A player
+# reading the printed suit would get both wrong and still look reasonable.
 SEED = 16
 DEALER = 3
 
@@ -109,10 +96,10 @@ class Log:
     """
     Shared scratchpad for the four narrators.
 
-    Each seat only ever sees its own turn, so somebody has to hold the running
-    state that makes the narration read like a game: which round we are in,
-    which trick, and the cards on the table. The referee would be the natural
-    home for it, but `table.py` deliberately has no opinions about output.
+    Each seat only sees its own turn, so somebody has to hold the state that
+    makes the narration read like a game: the round, the trick, the cards on
+    the table. `table.py` would be the natural home, but it has no opinions
+    about output.
     """
 
     def __init__(self, show_scores=True, pass_model=None):
@@ -154,10 +141,9 @@ class Narrator:
     """
     Wraps a player and says what it is doing. Decides nothing itself.
 
-    It reads `turn.observation` -- the seat's own view -- for everything it
-    prints, so the narration cannot show anything the player was not entitled
-    to see. The one exception is the deal block at the very top, which is
-    printed by the referee's own copy before anybody bids.
+    Everything it prints comes from `turn.observation`, the seat's own view, so
+    the narration cannot show what the player was not entitled to see. The one
+    exception is the deal block at the top, printed before anybody bids.
     """
 
     def __init__(self, seat, inner, log):
@@ -201,9 +187,8 @@ class Narrator:
 
         It reads like a bug and is not one. Every option sits on one scale and
         the largest wins, so a call worth -1.25 beats a pass worth -1.94: the
-        seat is not optimistic about the contract, it is pessimistic about what
-        happens if it declines. Whether that pessimism is earned is exactly
-        what `--pass-model` changes.
+        seat is pessimistic about declining, not optimistic about the contract.
+        Whether that pessimism is earned is what `--pass-model` changes.
         """
         if bid.action == t.PASS or not scored:
             return
@@ -293,7 +278,7 @@ class Narrator:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Play one deal with Monte Carlo players, out loud.")
+        description="Play one deal with PIMC sim players, out loud.")
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--dealer", type=int, default=DEALER)
     parser.add_argument("--samples", type=int, default=24,
@@ -306,7 +291,7 @@ def main(argv=None):
                              "exactly 'call only if calling is worth more than "
                              "nothing'")
     parser.add_argument("--perfect", action="store_true",
-                        help="use perfect-knowledge players instead, for "
+                        help="use God Mode players instead, for "
                              "comparison on the same deal")
     parser.add_argument("--no-loners", action="store_true")
     parser.add_argument("--quiet", action="store_true",
@@ -314,8 +299,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     deal = deal_random(rng=random.Random(args.seed), dealer=args.dealer)
-    kind = ("perfect-knowledge" if args.perfect
-            else "Monte Carlo (PIMC)")
+    kind = "God Mode" if args.perfect else "PIMC sim"
 
     print(RULE)
     print(" One deal, played by four %s players" % kind)
@@ -393,12 +377,12 @@ def main(argv=None):
         truth = b.play_value(contract.deal, contract.trump, contract.caller,
                              contract.alone)
         if truth == caller_score:
-            print("  Played double-dummy -- every hand face up -- the same "
+            print("  Played in God Mode -- every hand face up -- the same "
                   "contract is also worth %+d," % truth)
             print("  so nothing was lost in the play. Whatever was decided "
                   "here, was decided in the auction.")
         else:
-            print("  Played double-dummy -- every hand face up -- the same "
+            print("  Played in God Mode -- every hand face up -- the same "
                   "contract is worth %+d." % truth)
             print("  The %d-point gap is the price of not being able to see: "
                   "somewhere above, a seat" % abs(truth - caller_score))

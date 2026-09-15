@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Terminology
+
+Two names, used consistently throughout the repo:
+
+- **God Mode** -- all four players see all 24 cards and play the true optimum.
+  `fast_search`, `bidding` and `players.PerfectPlayer` are God Mode. This is
+  the exact baseline, not a model of a real table.
+- **Perfect Information Monte Carlo (PIMC) sim** -- a player sees only its own
+  cards and the play so far, samples layouts consistent with that, and solves
+  each sampled layout in God Mode. `players.PIMCPlayer`, fed by
+  `observation.py`, driven by `table.py`.
+
+The class is still named `PerfectPlayer` in code; "God Mode" is the prose name
+for what it does.
+
 ## Commands
 
 There is no build system, package manifest, or linter. Dependencies are installed directly:
@@ -36,13 +51,13 @@ suite and why `discover` needs no `-t` flag.
 
 Run both after any solver change.
 
-And the imperfect-information sweep, which is a measurement rather than a test
--- it has no pass/fail, it reports what honest players did:
+And the PIMC sim sweep, a measurement rather than a test -- no pass/fail, it
+reports what honest players did:
 
 ```bash
 python pimc_example.py                    # ONE deal, every decision narrated
 python pimc_example.py --pass-model zero  # ...with passing priced at nothing
-python pimc_sweep.py                      # 40 deals, PIMC table vs perfect
+python pimc_sweep.py                      # 40 deals, PIMC sim vs God Mode
 python pimc_sweep.py 60 --head-to-head    # what does seeing actually buy?
 python pimc_sweep.py 100 --pass-model zero --bid-samples 16
 ```
@@ -96,15 +111,15 @@ search never touches a vector again -- no `np.linalg.norm`, no `arccos`, no
 deck.py            card constants (already in canonical spades-trump form)
 rotation.py        natural (suit, rank) cards <-> the canonical frame
 game.py            Deal: 4x5 natural cards + up-card + kitty + dealer seat
-bidding.py         the auction, solved under perfect knowledge
+bidding.py         the auction, solved in God Mode
 dealer.py          Dealer dataclass: shuffle, stack specific cards, deal 4x5
 n_game_sim.py      generate_hands() -> (n_games, 4, 5, 2) batch of dealt hands
 fast_search.py     the solver: depth-first alpha-beta over the game tree
 reference_solver.py independent pure-Python solver, used only by the tests
 observation.py     one seat's information set, and sampling worlds from it
 table.py           the referee: play a deal out with four player objects
-players.py         decision rules: PerfectPlayer, PIMCPlayer, RandomPlayer
-pimc_sweep.py      measures a PIMC table against the perfect-knowledge one
+players.py         decision rules: PerfectPlayer (God Mode), PIMCPlayer, Random
+pimc_sweep.py      measures a PIMC sim table against the God Mode one
 pimc_example.py    one deal, every decision narrated -- read this one first
 tests/             the suite, see "Testing" below
   euchre_testkit.py  fixtures: named cards, line replay, and an exhaustive
@@ -113,7 +128,7 @@ tests/             the suite, see "Testing" below
   test_loners.py     loners, solver and bidding both
   test_position.py   partially played positions; replay along an optimal line
   test_observation.py what a seat knows, and that sampled worlds respect it
-  test_table.py      the referee and the players, incl. the PerfectPlayer pin
+  test_table.py      the referee and the players, incl. the God Mode pin
   test_fast_search.py randomised regression sweep for fast_search
 archive/           superseded code, see "Archived approaches" below
 ```
@@ -250,7 +265,7 @@ segfaults (SIGSEGV, reliably) when loading a cached *recursive* njit function,
 so the 15 s warmup cannot currently be cached away. Making `_search` iterative
 with an explicit stack would unblock that if the warmup ever matters.
 
-## Playing without perfect knowledge
+## Playing without God Mode
 
 Everything above this section answers a deal all at once, with every hand
 visible. `table.py`, `observation.py` and `players.py` are the other mode: four
@@ -259,8 +274,8 @@ independent players, each seeing only its own cards, deciding one at a time.
 ```
 observation.py     one seat's information set; sampling layouts consistent with it
 table.py           the referee: drives a Deal through the auction and the play
-players.py         decision rules -- PerfectPlayer, PIMCPlayer, RandomPlayer
-pimc_sweep.py      measures a PIMC table against the perfect-knowledge one
+players.py         decision rules -- PerfectPlayer (God Mode), PIMCPlayer, ...
+pimc_sweep.py      measures a PIMC sim table against the God Mode one
 pimc_example.py    one deal, narrated decision by decision
 ```
 
@@ -271,8 +286,8 @@ would want. It is empty when there was nothing to decide.
 The split between referee and strategy is strict. `table.py` holds no strategy
 at all: it offers the legal options, checks the answer is one of them, and
 writes down what happened. Every decision comes from a player object, so the
-same loop gives a perfect-knowledge table, a PIMC table, or a table of coin
-flips depending only on who is sitting at it.
+same loop gives a God Mode table, a PIMC sim table, or a table of coin flips
+depending only on who is sitting at it.
 
 **Players are handed both the truth and their own view.** `turn.deal` is the
 whole table; `turn.observation` is that seat's information set. A player that
@@ -283,11 +298,10 @@ an unusually strong one.
 
 **A table of four `PerfectPlayer`s reproduces `solve_bidding` exactly** -- same
 contract, same discard, same score, on every deal tested. That is the pin: the
-referee and the perfect player re-derive the existing baseline through entirely
-new code, so the machinery is anchored to the old answer before PIMC rides on
-it. It matches because the option ordering and the tie rule are the same ones
-`bidding._best` uses: options are listed pass, call, call-alone, and the first
-of equals wins.
+referee and the God Mode player re-derive the existing baseline through
+entirely new code, so the machinery is anchored to the old answer before the
+PIMC sim rides on it. It matches because the option ordering and the tie rule
+are `bidding._best`'s own: pass, call, call-alone, first of equals wins.
 
 ### What the solver needed for this
 
@@ -310,9 +324,9 @@ position, which is what a player choosing a card needs and what `solve` does not
 give. `solve_line`'s per-ply loop was rerouted through it, so every existing
 `solve_line` test now exercises the new code as well.
 
-The invariant that tests all of it: **along a double-dummy optimal line the
-position value never changes** -- both sides are already playing their best, so
-nothing either does moves the number. `tests/test_position.py` walks
+The invariant that tests all of it: **along a God Mode optimal line the position
+value never changes** -- both sides are already playing their best, so nothing
+either does moves the number. `tests/test_position.py` walks
 `solve_line`'s own line and re-solves from scratch at all 20 plies, and every
 one of them has a known answer.
 
@@ -343,40 +357,40 @@ picked up and not yet thrown -- be an ordinary `Observation` with
 
 **Bidding inference is deliberately not modelled.** Worlds are drawn as though
 the auction said nothing about anybody's cards, so a seat that ordered up is not
-assumed to hold trump. That makes PIMC players weaker than they could be, and
-weaker in a specific direction: they under-rate the caller. Closing it needs a
-bidding model, which is the thing this project is trying to produce, so the
-circularity is left open on purpose rather than closed with a guess.
+assumed to hold trump. That makes PIMC sim players weaker than they could be, in
+a specific direction: they under-rate the caller. Closing it needs a bidding
+model, which is the thing this project is trying to produce, so the circularity
+is left open on purpose rather than closed with a guess.
 
-### PIMC, and where the time goes
+### The PIMC sim, and where the time goes
 
 `PIMCPlayer` samples N layouts consistent with what its seat has seen, solves
-each one exactly, and takes the option with the best average. It is not a search
-over information sets and it does not know that it does not know, which shows up
-as two well-known distortions -- **strategy fusion** (it credits itself with
-plans that depend on knowing which world it is in) and **non-locality** (it
+each one in God Mode, and takes the option with the best average. It is not a
+search over information sets and it does not know that it does not know, which
+shows up as two well-known distortions -- **strategy fusion** (it credits itself
+with plans that depend on knowing which world it is in) and **non-locality** (it
 expects opponents to find defences they cannot see). Both make it optimistic.
 Neither makes it weak.
 
 **Pricing a pass is nearly the whole cost of bidding.** A pass is worth whatever
-the rest of the auction does, so `pass_model="dd"` (the default) runs the rest of
-the auction under perfect knowledge inside each sampled world -- up to 36 solves
-per sample. It is inconsistent in an obvious way, since inside the sample the
-other seats can see the hand this player is trying to hide, and it is still the
-best available answer to "what happens if I decline". `pass_model="zero"` prices
-a pass at 0 instead: much faster, and a markedly more aggressive bidder.
+the rest of the auction does, so `pass_model="dd"` (the default) runs the rest
+of the auction in God Mode inside each sampled world -- up to 36 solves per
+sample. It is inconsistent in an obvious way, since inside the sample the other
+seats can see the hand this player is hiding, and it is still the best available
+answer to "what happens if I decline". `pass_model="zero"` prices a pass at 0
+instead: much faster, and a markedly more aggressive bidder.
 
 Card play is cheap by comparison -- a mid-hand position solve is far smaller
 than a whole hand, and a seat with one legal card skips the search entirely
 rather than spending a few hundred solves confirming it has no choice.
 
 Tie-breaks matter more here than they look. Averaging over worlds mostly
-*destroys* the exact ties that the double-dummy auction resolved against
-calling, which is part of why a PIMC table calls loners so much more often than
-a perfect-knowledge one. Among cards the search rates identically, `tie_break`
-defaults to playing the cheapest; that only ever chooses between moves of equal
-expected value, so it cannot cost anything the model can see, but pass
-`tie_break="first"` when measuring PIMC rather than trying to win with it.
+*destroys* the exact ties the God Mode auction resolved against calling, which
+is part of why a PIMC sim table calls loners so much more often. Among cards the
+search rates identically, `tie_break` defaults to playing the cheapest; that
+only ever chooses between moves of equal expected value, so it cannot cost
+anything the model can see, but pass `tie_break="first"` when measuring the sim
+rather than trying to win with it.
 
 ### What honest players actually do
 
@@ -384,27 +398,27 @@ Measured by `pimc_sweep.py` over 60 deals at 20 play samples and 10 bid samples
 per decision, loners allowed, dealer rotating. Sampling error is large at this
 size -- these are shapes, not constants.
 
-|                            | PIMC         | perfect knowledge |
-| -------------------------- | ------------ | ----------------- |
-| passed out                 |  0%          |  0%               |
-| called alone               | 10%          |  1.7%             |
-| ordered up in round one    | 57/60        | 41/60             |
-| named a suit in round two  |  3/60        | 19/60             |
-| euchred                    | 43% of calls | 10%               |
-| marched                    | 10% of calls | 28%               |
-| mean tricks to the caller  | 2.75         | 3.55              |
-| mean points to the caller  | -0.10        | +1.02             |
+|                            | PIMC sim     | God Mode |
+| -------------------------- | ------------ | -------- |
+| passed out                 |  0%          |  0%      |
+| called alone               | 10%          |  1.7%    |
+| ordered up in round one    | 57/60        | 41/60    |
+| named a suit in round two  |  3/60        | 19/60    |
+| euchred                    | 43% of calls | 10%      |
+| marched                    | 10% of calls | 28%      |
+| mean tricks to the caller  | 2.75         | 3.55     |
+| mean points to the caller  | -0.10        | +1.02    |
 
 The two auctions land on the same trump suit 67% of the time and the same
 caller 55% of the time.
 
 **Seeing the other hands is worth about 1.26 points a deal.** `--head-to-head`
-puts PIMC on one team and perfect knowledge on the other, and plays each deal
+puts the PIMC sim on one team and God Mode on the other, and plays each deal
 twice with the teams swapped so seat and dealer advantages cancel exactly rather
-than statistically. Over 50 deals: **-1.26 +/- 0.36 points per deal** to PIMC.
-A euchre is worth 2, for scale.
+than statistically. Over 50 deals: **-1.26 +/- 0.36 points per deal** to the
+sim. A euchre is worth 2, for scale.
 
-**PIMC over-calls, and it is not sampling noise.** The obvious suspicion about
+**The sim over-calls, and it is not sampling noise.** The obvious suspicion about
 "take the best of several noisy averages" is the optimizer's curse, so it was
 checked directly: over the same 40 deals, at 5, 10 and 30 bid samples, the
 euchre rate was 48%, 45% and 48%. Flat. More search does not make it more
@@ -412,16 +426,15 @@ careful.
 
 **Most of the over-calling is the pass model.** Same 40 deals with
 `pass_model="zero"`: the euchre rate falls to 20-28% and the average call goes
-from -0.17 to +0.65 points. Pricing a pass by running the rest of the auction
-under perfect knowledge makes declining look worse than it is, because perfect
-knowledge essentially always finds a call -- so the pass branch nearly always
-reads "an opponent ends up calling this", and never "it comes back around to
-me".
+from -0.17 to +0.65 points. Pricing a pass by running the rest of the auction in
+God Mode makes declining look worse than it is, because God Mode essentially
+always finds a call -- so the pass branch nearly always reads "an opponent ends
+up calling this", and never "it comes back around to me".
 
 **But the better-behaved bidder is not a better player, and this is a trap
-worth knowing about.** Head to head against perfect knowledge, teams swapped on
-every deal: `"dd"` scores -1.26 +/- 0.36 and `"zero"` scores -1.34 +/- 0.36 over
-the same 50 deals. Indistinguishable. Mean points *per call* flattered `"zero"`
+worth knowing about.** Head to head against God Mode, teams swapped on every
+deal: `"dd"` scores -1.26 +/- 0.36 and `"zero"` scores -1.34 +/- 0.36 over the
+same 50 deals. Indistinguishable. Mean points *per call* flattered `"zero"`
 only because it is averaged over the deals a player chose to call, and silently
 drops what the deals it passed on cost it. That is `bidding.py`'s "passing is
 not free" turning up as a measurement trap rather than a bidding one -- do not
@@ -434,15 +447,15 @@ this file that did not come true, and the pass model does not explain it:
 `"zero"` prices a pass at exactly nothing and still never throws a hand in. The
 reason is the number of chances. Eight seats bid in turn, and each round-two
 seat is choosing among three suits -- six options once loners are on. Somebody
-almost always finds something that looks positive, especially since PIMC's
+almost always finds something that looks positive, especially since the sim's
 estimates are optimistic to begin with. Getting a table to pass a deal out
 needs a model of what the *other* seats will do with it, which is exactly what
 neither pass model has. That is the next thing worth building.
 
 **Loners move the way real tables move** -- 1.7% to 10%. Some of that is honest
-optimism about hands that might run. Some of it is mechanical: averaging over
-sampled worlds destroys the exact ties that made the double-dummy auction
-decline a loner worth no more than the same call four-handed.
+optimism about hands that might run. Some is mechanical: averaging over sampled
+worlds destroys the exact ties that made the God Mode auction decline a loner
+worth no more than the same call four-handed.
 
 ## Archived approaches
 
@@ -517,7 +530,7 @@ up-card, the buried kitty, and the dealer seat. `dealer.py` deals 20 canonical
 vectors and drops the other four -- fine for solving trick-play with trump
 already fixed, but it cannot support bidding, because there is no named up-card
 to order and no dealer to pick up and discard. `game.py` is what bidding will be
-built on; `dealer.py` still backs the existing double-dummy sweep.
+built on; `dealer.py` still backs the existing God Mode sweep.
 
 `Deal` is frozen, and every transition returns a new one that has been through
 `check()`. The invariant is that all 24 cards are always accounted for --
@@ -540,7 +553,7 @@ not the destination -- replace the decision rule, keep the machinery.
 
 The tree is a chain, not an exponential: round one is four order-or-pass
 decisions and an order ends it, round two is four name-or-pass decisions. At
-most 36 double-dummy solves per deal (24 in round one, since ordering up makes
+most 36 God Mode solves per deal (24 in round one, since ordering up makes
 the dealer choose among six discards, plus 12 in round two), so about 10-25 ms.
 
 Everything is scored as **net points to team 0**, so calls by different seats
@@ -557,14 +570,14 @@ Three things that are easy to get wrong and are deliberate here:
   march -- +1 instead of +2.
 - **Passing is not free.** Its value is whatever the rest of the auction
   produces, which may be worse than the call you declined.
-- **Ties resolve to passing.** Otherwise perfect knowledge cheerfully orders up
-  a hand it knows will be euchred whenever declining is equally bad; the value
-  is the same but the reported line is nonsense.
+- **Ties resolve to passing.** Otherwise God Mode cheerfully orders up a hand
+  it knows will be euchred whenever declining is equally bad; the value is the
+  same but the reported line is nonsense.
 
-Two measured facts worth knowing: perfect knowledge essentially **never passes
-out** (0 of 1600 auctions), because somebody can nearly always find a call that
-is at worst harmless. And `stick_the_dealer=True` changes the result on about
-4% of deals -- it bites through the *threat*, by changing what earlier seats do.
+Two measured facts worth knowing: God Mode essentially **never passes out** (0
+of 1600 auctions), because somebody can nearly always find a call that is at
+worst harmless. And `stick_the_dealer=True` changes the result on about 4% of
+deals -- it bites through the *threat*, by changing what earlier seats do.
 
 #### Loners in the auction
 
@@ -577,9 +590,9 @@ same reasoning as ties resolving to passing.
 
 Three things worth knowing before touching it:
 
-- **It barely matters under perfect knowledge.** Allowing loners changes the
-  auction on ~1% of deals (6 of 480 measured), and always the same way: a made
-  contract becomes a lone march. That follows from the scoring -- going alone
+- **It barely matters in God Mode.** Allowing loners changes the auction on ~1%
+  of deals (6 of 480 measured), and always the same way: a made contract becomes
+  a lone march. That follows from the scoring -- going alone
   only gains when the caller can take all five unaided, since 3-4 tricks is `+1`
   either way and a euchre costs the same `2`. At the eldest seat over 32 deals,
   going alone was better on 0, worse on 8, equal on 24.
@@ -606,4 +619,4 @@ largest number is the best bid. `first_bid_choice` remains the two-option form.
 - `Dealer.__post_init__` honours `players` rather than always building four hands, and rejects a table the deck cannot seat.
 - `Dealer.stack_deck` used `np.isin(self.deck, stack_cards).all(axis=1)`, which compared each *coordinate* against every value in the stack rather than matching whole cards, so it silently deleted extra cards from the deck (stacking 9d `[9,0]` and Ac `[0,-14]` also removed Ah `[-14,0]`). Those cards then could not be dealt to anyone. It now matches rows and raises if it does not match exactly `len(stack_cards)` cards. Measured effect on one affected stack: EV moved from +1.530 to +1.608 over 5000 deals, non-overlapping CIs.
 - `test_hand.txt` is the canonical fixture, also inlined in `tests/test_fast_search.py` and `tests/test_solver.py`. Its true value is 2 with `starting_player=2, caller=0`, and -2 solved alone.
-- `interface.ipynb` is deliberately one worked example, four cells: a hand dealt with `deal_from_order`, the auction solved under perfect information with `allow_loners=True`, and the play. The deal is written out by hand rather than seeded, because the example only works if the loner is obvious -- seat 0 holds both bowers plus A-K of trump and an outside ace, and `first_bid_options` reads pass +2 / order +2 / order alone +4. It is not a dashboard: anything that sweeps deals or measures EV belongs in a script or the tests, where it runs headless and gets checked. Earlier versions grew EV sweep cells; `git log -p -- interface.ipynb` has those if one is wanted back.
+- `interface.ipynb` is deliberately one worked example, four cells: a hand dealt with `deal_from_order`, the auction solved in God Mode with `allow_loners=True`, and the play. The deal is written out by hand rather than seeded, because the example only works if the loner is obvious -- seat 0 holds both bowers plus A-K of trump and an outside ace, and `first_bid_options` reads pass +2 / order +2 / order alone +4. It is not a dashboard: anything that sweeps deals or measures EV belongs in a script or the tests, where it runs headless and gets checked. Earlier versions grew EV sweep cells; `git log -p -- interface.ipynb` has those if one is wanted back.
