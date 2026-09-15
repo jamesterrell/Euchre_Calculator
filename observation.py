@@ -361,23 +361,15 @@ def _deal_out(pool: List[r.Card], caps: List[int], obs: Observation,
     return out
 
 
-def sample_world(obs: Observation, rng: Optional[random.Random] = None,
-                 attempts: int = 200) -> World:
+def _draw_setup(obs: Observation):
     """
-    Draw one layout of the unseen cards that is consistent with `obs`.
+    Everything a draw needs that does not change between draws.
 
-    Consistent means: the counts are right, nobody is dealt a suit they have
-    already shown out of, the buried cards stay buried, and the up-card is
-    where the table watched it go. It does **not** mean the layout is likely
-    given the bidding -- see the module docstring.
-
-    The draw is close to uniform over consistent layouts but not exactly so.
-    Placement is sequential with the most-constrained card first, which is
-    exactly uniform when no void is in play and slightly biased when one is.
-    Raises RuntimeError if `attempts` deals all fail, which means the
-    observation is contradictory rather than merely hard.
+    `sample_world` used to recompute all of this per call -- the consistency
+    check, the unseen pool, the capacities and the voids -- which a PIMC player
+    then paid once per sampled world. None of it touches the rng, so hoisting
+    it out leaves the drawn worlds bit-for-bit what they were.
     """
-    rng = rng or random.Random()
     obs.check()
 
     pool = obs.unseen()
@@ -397,6 +389,15 @@ def sample_world(obs: Observation, rng: Optional[random.Random] = None,
             "%d unseen cards do not fill %d slots -- the observation is "
             "inconsistent" % (len(pool), sum(caps)))
 
+    own = tuple(obs.hand)
+    known_kitty = tuple(obs.known_kitty())
+    return pool, caps, voids, forced, own, known_kitty
+
+
+def _draw(setup, obs: Observation, rng: random.Random, attempts: int) -> World:
+    """One draw against a prepared `_draw_setup`."""
+    pool, caps, voids, forced, own, known_kitty = setup
+
     for _ in range(attempts):
         dealt = _deal_out(pool, caps, obs, voids, rng)
         if dealt is not None:
@@ -410,12 +411,45 @@ def sample_world(obs: Observation, rng: Optional[random.Random] = None,
     for card, seat in forced:
         dealt[seat].append(card)
 
-    hands = []
-    for seat in range(PLAYERS):
-        hands.append(tuple(obs.hand) if seat == obs.seat
-                     else tuple(dealt[seat]))
-    kitty = tuple(dealt[KITTY]) + tuple(obs.known_kitty())
-    return World(hands=tuple(hands), kitty=kitty)
+    hands = tuple(own if seat == obs.seat else tuple(dealt[seat])
+                  for seat in range(PLAYERS))
+    return World(hands=hands, kitty=tuple(dealt[KITTY]) + known_kitty)
+
+
+def sample_world(obs: Observation, rng: Optional[random.Random] = None,
+                 attempts: int = 200) -> World:
+    """
+    Draw one layout of the unseen cards that is consistent with `obs`.
+
+    Consistent means: the counts are right, nobody is dealt a suit they have
+    already shown out of, the buried cards stay buried, and the up-card is
+    where the table watched it go. It does **not** mean the layout is likely
+    given the bidding -- see the module docstring.
+
+    The draw is close to uniform over consistent layouts but not exactly so.
+    Placement is sequential with the most-constrained card first, which is
+    exactly uniform when no void is in play and slightly biased when one is.
+    Raises RuntimeError if `attempts` deals all fail, which means the
+    observation is contradictory rather than merely hard.
+    """
+    rng = rng or random.Random()
+    return _draw(_draw_setup(obs), obs, rng, attempts)
+
+
+def iter_worlds(obs: Observation, rng: Optional[random.Random] = None,
+                attempts: int = 200):
+    """
+    An endless stream of draws from `sample_world`, sharing one setup.
+
+    Lazy on purpose. A player that stops sampling early -- because the decision
+    is already settled -- should not have paid for the worlds it never looked
+    at, and `sample_worlds` handing back a finished list meant it always had.
+    Draws are identical to repeated `sample_world` calls on the same rng.
+    """
+    rng = rng or random.Random()
+    setup = _draw_setup(obs)
+    while True:
+        yield _draw(setup, obs, rng, attempts)
 
 
 def sample_worlds(obs: Observation, n: int,
@@ -423,7 +457,11 @@ def sample_worlds(obs: Observation, n: int,
                   attempts: int = 200) -> List[World]:
     """`n` independent draws from `sample_world`. Duplicates are not filtered."""
     rng = rng or random.Random()
-    return [sample_world(obs, rng, attempts) for _ in range(n)]
+    if n <= 0:
+        obs.check()
+        return []
+    stream = iter_worlds(obs, rng, attempts)
+    return [next(stream) for _ in range(n)]
 
 
 def check_world(obs: Observation, world: World):

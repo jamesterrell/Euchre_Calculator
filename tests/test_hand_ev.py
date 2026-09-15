@@ -52,7 +52,7 @@ UP = r.parse_card("9S")
 
 def a_setup(seat=0, dealer=3, up_card=UP, hand=None, player_eval_sims=1,
             bid_eval_sims=None, pass_model=h.players.PASS_ZERO,
-            allow_loners=True, stick=False, seed=0):
+            allow_loners=True, stick=False, seed=0, epsilon=None):
     return h.Setup(
         hand=tuple(HAND if hand is None else hand),
         up_card=up_card, seat=seat, dealer=dealer,
@@ -60,7 +60,7 @@ def a_setup(seat=0, dealer=3, up_card=UP, hand=None, player_eval_sims=1,
         bid_eval_sims=(player_eval_sims if bid_eval_sims is None
                        else bid_eval_sims),
         pass_model=pass_model, allow_loners=allow_loners, stick=stick,
-        seed=seed)
+        seed=seed, epsilon=epsilon)
 
 
 def quietly(fn, *args, **kwargs):

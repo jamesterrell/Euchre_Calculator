@@ -18,6 +18,8 @@ comes back is what happened at the table rather than what was available at it.
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 2000 --player-eval-sims 50
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --both --deals 500
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 5000 --workers 8
+    python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 10000         --player-eval-sims 10000 --epsilon 0.4 --workers 10
+    python hand_ev.py "JS AS 9H 9D TC" --up 9S --epsilon none   # exact, slow
 
 Two nested sim counts, doing different jobs:
 
@@ -32,24 +34,56 @@ Two nested sim counts, doing different jobs:
     decisions settle is not measured here, and is not safe to assume from the
     God Mode numbers elsewhere in this repo.
 
-**Cost is `deals x player_eval_sims`, and that is the whole story.** Measured on
-`JS AS 9H 9D TC` with `9S` up -- `pass_model="zero"`, loners on -- one deal cost
-0.39 s at 10 sims per eval, so about **39 ms per sim**, scaling linearly in both
-axes. A hand that gets ordered up nearly every deal, like that one, is the
-expensive case: five tricks always get played.
+**Cost used to be `deals x player_eval_sims`, and no longer is.** A PIMC
+decision averages every option over N sampled worlds and takes the best, but
+the average is not the answer -- the argmax is, and that is usually settled
+long before N. `--epsilon` stops sampling a decision once its remaining
+options are within that many points of the leader, on the grounds that picking
+either one moves the answer by less than the band. See `players._race`.
 
-    deals   eval sims   serial       10 workers (measured ~3x, not 10x)
-    1,000          10   ~7 minutes   ~2 minutes
-    1,000         100   ~1 hour      ~20 minutes
-   10,000          10   ~1 hour      ~20 minutes
-   10,000         100   ~11 hours    ~4 hours
-   10,000      10,000   ~45 days     ~15 days
+What that changes is the shape of the cost, not just its size: a decision is
+capped at roughly `(z * sd / epsilon)^2` worlds, so past that point a larger
+budget buys nothing and costs nothing. Measured on `JS AS 9H 9D TC` with `9S`
+up, pass model `"zero"`, loners on, 6 deals a point:
+
+    eval sims   epsilon 0.15   epsilon 0.40   epsilon 1.00
+          200      1.049 s/deal   0.446 s/deal   0.320 s/deal
+          800      1.393          0.464          0.330
+        3,200      1.435          0.461          0.337
+       12,800      1.429          0.457          0.331
+
+Flat from 800 on. `--player-eval-sims 12800` costs what 800 costs. With
+`--epsilon none` the old behaviour is back, exactly -- the same worlds, the
+same rng, the same answers -- and so is the old linear cost, 0.39 s per deal
+per 10 sims.
+
+So the sweep is priced by `deals` and `epsilon`, and `--player-eval-sims` is
+close to free above ~800:
+
+    deals   epsilon   serial        10 workers
+    1,000      0.40   ~8 minutes    ~2 minutes
+   10,000      0.40   ~76 minutes   ~20 minutes
+   10,000      0.15   ~4 hours      ~52 minutes
+   10,000      none   ~45 days      ~10 days      (at 10,000 eval sims)
+
+The band is not free, and what it costs was measured rather than assumed: over
+900 paired deals at 400 eval sims, `--epsilon 0.15` moved the answer by
++0.073 +/- 0.077 points and `--epsilon 0.40` by +0.024 +/- 0.085, against the
+exact run on identical layouts. Small next to a euchre, and not clearly
+different from zero at that many deals.
+
+**But a wide band caps the sample count as well as the cost.** At
+`--epsilon 0.4`, going from 800 eval sims to 12,800 changed nothing whatsoever
+-- 900 of 900 deals identical. So that run is an ~800-sample run that cannot be
+told apart from a 12,800-sample one *at that band*, which is not the same claim
+as the decisions having settled. Narrow the band if the question is whether
+they do.
 
 `--workers` spreads deals over processes; each pays the ~20 s JIT warmup once,
-and the observed speedup is around 3x on a 12-thread machine rather than the
-10x the core count suggests. Results do not depend on the worker count -- every
-deal seeds itself from its own index -- so a parallel run and a serial one give
-the same number.
+and the measured speedup is 4.6x on a 12-thread machine -- 0.95 s/deal against
+4.35 s/deal serial over 900 deals -- rather than the 10x the core count
+suggests. Results do not depend on the worker count -- every deal seeds itself
+from its own index -- so a parallel run and a serial one give the same number.
 
 `--both` also solves each of the same deals in God Mode and reports the paired
 difference. Paired, because the two tables play identical layouts: the
@@ -73,6 +107,17 @@ import table as t
 
 DEALS = 1000
 PLAYER_EVAL_SIMS = 10
+EPSILON = 0.05
+
+
+def _epsilon(text):
+    """`--epsilon none` turns early stopping off; anything else is a number."""
+    if text.strip().lower() in ("none", "off"):
+        return None
+    value = float(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError("epsilon must not be negative")
+    return value
 
 
 # ------------------------------------------------------------- the question
@@ -98,6 +143,9 @@ class Setup:
     allow_loners: bool
     stick: bool
     seed: int
+    # Last, and defaulted, so the field order the tests build a Setup with
+    # keeps working. None means exact averaging -- see players._race.
+    epsilon: Optional[float] = None
 
     def deal(self, i: int) -> game.Deal:
         """Deal `i` of the sweep. Derived from `i` alone, so workers agree."""
@@ -111,6 +159,7 @@ class Setup:
         return [players.PIMCPlayer(samples=self.player_eval_sims,
                                    bid_samples=self.bid_eval_sims,
                                    pass_model=self.pass_model,
+                                   epsilon=self.epsilon,
                                    rng=random.Random(self.seed * 7919 + i * 4 + s))
                 for s in range(game.PLAYERS)]
 
@@ -337,6 +386,13 @@ def parse_args(argv=None):
                         help="how a player prices passing: 'zero' is worth "
                              "nothing and ~4x faster, 'god' runs the rest of "
                              "the auction in God Mode (default zero)")
+    parser.add_argument("--epsilon", type=_epsilon, default=EPSILON,
+                        help="indifference band, in points. A decision stops "
+                             "sampling once its remaining options are within "
+                             "this of the leader, since picking either moves "
+                             "the answer by less than it. 0 stops only on "
+                             "proven gaps; 'none' disables early stopping and "
+                             "restores exact averaging (default %g)" % EPSILON)
     parser.add_argument("--both", action="store_true",
                         help="also solve each layout in God Mode and report "
                              "the paired difference")
@@ -373,7 +429,7 @@ def setup_from(args) -> Setup:
                  bid_eval_sims=(args.player_eval_sims
                                 if args.bid_eval_sims is None
                                 else args.bid_eval_sims),
-                 pass_model=args.pass_model,
+                 pass_model=args.pass_model, epsilon=args.epsilon,
                  allow_loners=not args.no_loners, stick=args.stick,
                  seed=args.seed)
 
@@ -388,9 +444,11 @@ def describe(setup: Setup, args):
     print("  %-30s seat %d, dealer %d, you speak %d of %d"
           % ("seating", setup.seat, setup.dealer,
              order.index(setup.seat) + 1, game.PLAYERS))
-    print("  %-30s %d deals x %d play / %d bid eval sims, pass model %r%s%s"
+    print("  %-30s %d deals x %d play / %d bid eval sims, pass model %r%s%s%s"
           % ("sweep", args.deals, setup.player_eval_sims, setup.bid_eval_sims,
              setup.pass_model,
+             ", exact (no early stop)" if setup.epsilon is None
+             else ", epsilon %g" % setup.epsilon,
              "" if setup.allow_loners else ", loners off",
              ", stick the dealer" if setup.stick else ""))
     if args.workers > 1:

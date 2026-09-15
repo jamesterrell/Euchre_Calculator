@@ -128,6 +128,7 @@ n_game_sim.py      generate_hands() -> (n_games, 4, 5, 2) batch of dealt hands
 fast_search.py     the solver: depth-first alpha-beta over the game tree
 reference_solver.py independent pure-Python solver, used only by the tests
 observation.py     one seat's information set, and sampling worlds from it
+                   (`iter_worlds` is the lazy form -- see "stopping early")
 table.py           the referee: play a deal out with four player objects
 players.py         decision rules: GodModePlayer, PIMCPlayer, RandomPlayer
 pimc_sweep.py      measures a PIMC sim table against the God Mode one
@@ -142,6 +143,7 @@ tests/             the suite, see "Testing" below
   test_observation.py what a seat knows, and that sampled worlds respect it
   test_table.py      the referee and the players, incl. the God Mode pin
   test_hand_ev.py    the pinned-hand sweep: what stays pinned, deal order
+  test_race.py       sequential elimination: the epsilon stopping rule
   test_fast_search.py randomised regression sweep for fast_search
 archive/           superseded code, see "Archived approaches" below
 ```
@@ -424,6 +426,87 @@ only ever chooses between moves of equal expected value, so it cannot cost
 anything the model can see, but pass `tie_break="first"` when measuring the sim
 rather than trying to win with it.
 
+### Stopping early: the `epsilon` band
+
+**A PIMC decision does not need its averages, only its argmax, and the argmax
+settles long before the budget does.** Measured over 12 deals at 200 worlds a
+decision: card-play decisions settled after a median of **1** world and 69%
+within 20; bidding, which is the expensive half, took a median of 68. The rest
+of the budget was confirming a decision already made.
+
+`players._race` is the stopping rule. It drops an option on either of two
+grounds: the gap to the leader is bigger than the noise on the gap, or the gap
+is smaller than `epsilon` and so cannot matter. The test is on **paired**
+differences -- every option is scored in the same sampled world, so `v_i - v_j`
+is far quieter than either mean and is usually exactly 0.
+
+**The band is what makes the cost flat, and this is the whole point.** Proving
+two noisy options are within `epsilon` costs about `(z * sd / epsilon)^2`
+worlds, so a decision is capped there no matter how large the budget is.
+Measured on `hand_ev.py`'s pinned hand, 6 deals a point:
+
+| eval sims | epsilon 0.15 | epsilon 0.40 | epsilon 1.00 |
+| --------- | ------------ | ------------ | ------------ |
+|       200 | 1.049 s/deal | 0.446 s/deal | 0.320 s/deal |
+|       800 | 1.393        | 0.464        | 0.330        |
+|     3,200 | 1.435        | 0.461        | 0.337        |
+|    12,800 | 1.429        | 0.457        | 0.331        |
+
+Flat from 800 on: **10,000 eval sims cost what 800 cost.** Before this, the
+same run was linear in the sample count -- 0.39 s per deal per 10 sims, which
+put 10,000 deals at 10,000 sims at about 45 days.
+
+Three things to know before touching it:
+
+- **`epsilon=None` is off, and off is exact.** The same worlds, the same rng,
+  the same answers, bit for bit -- verified by digesting a whole `hand_ev` run
+  under both pass models before and after. That is the default for
+  `PIMCPlayer`, so `pimc_sweep.py`, `pimc_example.py` and every existing
+  measurement in this file are unaffected. Only `hand_ev.py` defaults it on.
+  The exactness is load-bearing rather than polite: a player that drew fewer
+  worlds would hand every later decision in the deal different layouts, so an
+  unraced sweep would stop reproducing.
+- **It never narrows a card-play solve.** One `position_moves` call prices
+  every legal card at once, so dropping a card saves nothing within a world;
+  the saving is in stopping the world loop. Bidding and discarding evaluate
+  each option separately, so there dropping one does save the solves.
+- **`min_worlds` (24) is a floor, not a target.** Nothing is dropped on fewer,
+  which is why `epsilon` does nothing at all at the sample counts the unit
+  tests and `pimc_sweep.py` run at.
+
+**What the band costs, measured.** 900 deals, paired -- every setting plays
+identical layouts, so deal luck cancels deal by deal. 10 workers.
+
+| setting        | s/deal | vs exact, paired  | deals identical |
+| -------------- | ------ | ----------------- | --------------- |
+| exact @400     | 0.95   | --                | --              |
+| epsilon 0.15   | 0.32   | **+0.073 +/- 0.077** | 725/900      |
+| epsilon 0.40   | 0.137  | **+0.024 +/- 0.085** | 542/900      |
+
+So at this sample count the band moves the answer by less than 0.1 points and
+the drift is not clearly distinguishable from zero at 900 deals. It is *not*
+established that the drift is zero, only that it is small next to a euchre.
+
+**The catch, and it is the important part.** At `epsilon=0.40`, raising the
+sample count from 800 to 12,800 changed **nothing at all** -- 900 of 900 deals
+identical, a paired difference of exactly +0.000. That is the flat cost curve
+seen from the other side: a band that wide freezes every decision by ~800
+worlds, so the extra samples are genuinely inert rather than merely cheap.
+
+Which means **`--player-eval-sims 10000 --epsilon 0.4` is not a 10,000-sample
+run.** It is an ~800-sample run that cannot be told apart from one, at that
+band. If the question is specifically whether decisions keep moving above a few
+thousand samples -- and this file's own note says that is unmeasured and should
+not be assumed either way -- then the band has to come down far enough to leave
+room for the movement, and the cost comes back with it. `epsilon` is the dial
+between those two, and the honest way to use it is to re-measure at two bands
+and see whether the answer moved.
+
+`tests/test_race.py` covers both halves: that off is exactly off, and that on
+has the shape it claims -- a dominated option loses, a dominant one is never
+dropped, options that always agree tie out instead of running the budget, and
+a wider band stops sooner.
+
 ### What honest players actually do
 
 Measured by `pimc_sweep.py` over 60 deals at 20 play samples and 10 bid samples
@@ -509,13 +592,31 @@ run -4..+4 with a standard deviation near 2, so the 95% interval is about
 decision; it is never averaged into the reported mean, so it moves the mean
 itself rather than shrinking its interval. How far it has to go before PIMC
 decisions settle is **unmeasured** -- do not assume flatness in either
-direction.
+direction. What *is* now measured is that raising it is close to free: with
+`--epsilon` set, the cost stops growing with it above ~800.
 
-Cost is `deals x player_eval_sims` and nothing else. Measured on
-`JS AS 9H 9D TC` with `9S` up, pass model `"zero"`, loners on: 0.39 s per deal
-at 10 eval sims, so ~39 ms per sim, linear in both axes. That hand is the
-expensive case, since it gets ordered up nearly every deal and so plays all
-five tricks. `--workers` spreads deals over processes at a measured ~3x on a
+Cost **was** `deals x player_eval_sims` and nothing else -- 0.39 s per deal at
+10 eval sims on `JS AS 9H 9D TC` with `9S` up, pass model `"zero"`, loners on,
+linear in both axes, which put 10,000 deals at 10,000 eval sims at about **45
+days**. `--epsilon` breaks that second axis; see "Stopping early" above. With
+the band on, cost is flat in the sample count above ~800 worlds a decision, so
+the sweep is priced by `deals` and `epsilon` alone:
+
+| deals  | epsilon | serial      | 10 workers  |
+| ------ | ------- | ----------- | ----------- |
+|  1,000 | 0.40    | ~8 minutes  | ~2 minutes  |
+| 10,000 | 0.40    | ~76 minutes | ~20 minutes |
+| 10,000 | 0.15    | ~4 hours    | ~52 minutes |
+| 10,000 | none    | ~45 days    | ~10 days    |
+
+The worker column is measured at 900 deals, not extrapolated from the core
+count: 10 workers ran exact-at-400 at 0.95 s/deal against 4.35 s/deal serial,
+so **4.6x on 12 threads**, better than the ~3x noted elsewhere in this file but
+still nothing like 10x.
+
+`--epsilon none` restores the exact averaging and the old linear cost. That
+hand is the expensive case, since it gets ordered up nearly every deal and so
+plays all five tricks. `--workers` spreads deals over processes at a measured ~3x on a
 12-thread machine, not the 10x the core count suggests, and each worker pays the
 ~20 s JIT warmup once. **The answer does not depend on the worker count** --
 every deal seeds itself from its own index, so serial and parallel runs agree
