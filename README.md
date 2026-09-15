@@ -61,23 +61,11 @@ Swap in `players.GodModePlayer` for God Mode, or mix them at one table.
 
 ### What the two say about each other
 
-Measured over 60 deals at 20 play samples and 10 bid samples, loners allowed.
-Sampling error is large at this size -- these are shapes, not constants.
-
-|                           | PIMC sim     | God Mode |
-| ------------------------- | ------------ | -------- |
-| passed out                | 0%           | 0%       |
-| called alone              | 10%          | 1.7%     |
-| ordered up in round one   | 57/60        | 41/60    |
-| named a suit in round two | 3/60         | 19/60    |
-| euchred                   | 43% of calls | 10%      |
-| marched                   | 10% of calls | 28%      |
-| mean tricks to the caller | 2.75         | 3.55     |
-| mean points to the caller | -0.10        | +1.02    |
-
 Head to head with the teams swapped on every deal so seat and dealer advantages
 cancel exactly: **God Mode beats the PIMC sim by 1.26 +/- 0.36 points a deal**.
-A euchre is worth 2, for scale.
+A euchre is worth 2, for scale. Where the two part company -- the sim orders up
+almost everything, calls loners more than ten times as often, and pays for both
+-- is in the table below.
 
 ```bash
 python pimc_sweep.py 60                 # both tables, profiled side by side
@@ -89,6 +77,67 @@ python pimc_example.py --god-mode       # the same deal, in God Mode
 
 `pimc_example.py` is the one to read first. It plays a single pinned deal and
 prints what every seat could see, what each option was worth, and which it took.
+
+### Pricing a pass, and the euchre rate
+
+A PIMC bidder has to put a number on passing, and that number is nearly the
+whole cost of bidding. `pass_model="god"` -- the default -- values a pass by
+running the rest of the auction in God Mode inside each sampled world.
+`pass_model="zero"` prices it at nothing, so a seat calls whenever its own call
+averages better than 0.
+
+The same 300 deals either way -- same seeds, same dealer rotation, 20 play
+samples and 10 bid samples, loners allowed. The God Mode column comes out
+identical in both runs, which is what makes the two PIMC columns comparable.
+
+|                           | PIMC, pass `"god"` | PIMC, pass `"zero"` | God Mode |
+| ------------------------- | ------------------ | ------------------- | -------- |
+| **euchred**               | **115 of 300 calls (38.3%)** | **50 of 300 (16.7%)** | **39 of 300 (13.0%)** -- all of them deliberate, see below |
+| marched                   | 10.7% of calls     | 18.0%               | 26.7%    |
+| mean tricks to the caller | 2.88               | 3.49                | 3.43     |
+| mean points to the caller | +0.04              | +0.75               | +0.90    |
+| called alone              | 13.3%              | 10.3%               | 1.0%     |
+| ordered up in round one   | 273/300            | 278/300             | 195/300  |
+| named a suit in round two | 27/300             | 22/300              | 105/300  |
+| passed out                | 0                  | 0                   | 0        |
+
+**Every euchre in the God Mode column is a sacrifice against a loner.** A seat
+that can see all 24 cards never calls a contract it knows will fail unless the
+alternative is worse, and ties resolve to passing -- so a euchre has to be
+strictly better than declining. Being euchred hands the opposition exactly 2,
+which is the same as letting them march, so the only continuation worse than
+taking the euchre is an opposing *lone* march at 4. Checked directly over these
+300 deals: in all 39, the branch where the caller passes is an opponent calling
+alone and taking all five. Forbid loners and the same 300 deals produce **zero**
+God Mode euchres. It is throwing itself under the bus for a two-point saving.
+
+**Pricing a pass at nothing cuts the euchre rate by more than half** -- 38.3%
+down to 16.7%, which is +/- 4.2 points at this sample size. The caller's mean
+take per call goes from +0.04 to +0.75, and the contract is made 250 times out
+of 300 instead of 185.
+
+The reason is that `"god"` makes declining look worse than it is. Inside a
+sampled world every other seat sees everything, and God Mode essentially always
+finds a call -- so the pass branch nearly always reads "an opponent ends up
+calling this" and almost never "it comes back around to me". A pass priced that
+badly turns marginal hands into calls, and marginal hands get euchred.
+
+**A lower euchre rate is not a stronger player.** Head to head against God Mode
+with the teams swapped on every deal, `"god"` scores -1.26 +/- 0.36 points a
+deal and `"zero"` -1.34 +/- 0.36 over the same 50 -- indistinguishable. Mean
+points per call flatters `"zero"` because it averages only the deals a player
+chose to call and silently drops whatever the deals it passed on cost it.
+Passing is not free. What `"zero"` reliably is, is about 4x faster: 205s against
+497s for these 300 deals.
+
+Neither model will throw a hand in -- 0 passed out of 300, both ways. Getting a
+table to pass a deal out needs a model of what the *other* seats will do with
+it, which is what neither pass model has.
+
+```bash
+python pimc_sweep.py 300 --pass-model zero   # the "zero" column, ~3.5 min
+python pimc_sweep.py 300                     # the same deals, pass model "god"
+```
 
 ## Installation
 
