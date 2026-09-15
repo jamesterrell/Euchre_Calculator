@@ -198,37 +198,38 @@ def _work(job):
 def run(setup: Setup, deals: int, both: bool = False, workers: int = 1,
         progress=None):
     """
-    Play `deals` sampled layouts. Returns (pimc records, god mode records).
+    Play `deals` sampled layouts. Returns (pimc records, god mode records),
+    both in deal order.
 
-    Serial below two workers, because a worker pays the JIT warmup on the way
+    Sorted back into deal order on the way out, because the pool hands results
+    back as they finish. The means and counts would not care, but a caller that
+    reads `records[i]` as deal `i` would be quietly wrong, and so would any
+    later attempt to compare a parallel run against a serial one record by
+    record. Serial below two workers: a worker pays the JIT warmup on the way
     in and a short sweep never earns that back.
     """
     jobs = [(i, both) for i in range(deals)]
-    pimc, god = [], []
+    out = []
     done = 0
 
     if workers > 1:
         with mp.Pool(workers, initializer=_init, initargs=(setup,)) as pool:
-            results = pool.imap_unordered(_work, jobs, chunksize=4)
-            for _, a, c in results:
-                pimc.append(a)
-                if c is not None:
-                    god.append(c)
+            for row in pool.imap_unordered(_work, jobs, chunksize=4):
+                out.append(row)
                 done += 1
                 if progress:
                     progress(done, deals)
     else:
         _init(setup)
         for job in jobs:
-            _, a, c = _work(job)
-            pimc.append(a)
-            if c is not None:
-                god.append(c)
+            out.append(_work(job))
             done += 1
             if progress:
                 progress(done, deals)
 
-    return pimc, god
+    out.sort(key=lambda row: row[0])
+    return ([a for _, a, _ in out],
+            [c for _, _, c in out if c is not None])
 
 
 # ------------------------------------------------------------- reading them
