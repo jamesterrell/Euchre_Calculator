@@ -29,7 +29,7 @@ Tests. The unit suite is stdlib `unittest`, so it needs nothing beyond numpy
 and numba:
 
 ```bash
-python -m unittest discover               # whole suite, ~70s including JIT warmup
+python -m unittest discover               # whole suite, ~240s including JIT warmup
 python -m unittest tests.test_solver      # one module
 python -m unittest tests.test_solver.TestLeftBower -v
 python tests/test_solver.py               # or run a file directly
@@ -141,6 +141,7 @@ tests/             the suite, see "Testing" below
   test_position.py   partially played positions; replay along an optimal line
   test_observation.py what a seat knows, and that sampled worlds respect it
   test_table.py      the referee and the players, incl. the God Mode pin
+  test_hand_ev.py    the pinned-hand sweep: what stays pinned, deal order
   test_fast_search.py randomised regression sweep for fast_search
 archive/           superseded code, see "Archived approaches" below
 ```
@@ -271,6 +272,24 @@ which trusts the archived pipeline:
 Run it after any solver change. An earlier version agreed with the old pipeline
 on 30/41 hands but failed the independent cross-check, which is what surfaced
 the trick-buffer bug above. Agreement with the archived code is not evidence.
+
+`tests/test_hand_ev.py` tests no Euchre at all -- `hand_ev.py` computes none of
+its own, it pins a hand and adds up what the referee gives back. What it checks
+is the three things that module can get wrong alone: that the sampled deal is
+still the question that was asked (the hand at the right seat, the right
+up-card, the right dealer), that a deal is a function of its index, and that
+every reported number is on the asking seat's own team's scale -- derived from
+the caller's score rather than compared against the conversion that produced it,
+since a sign error is invisible on any deal where the two teams agree.
+
+It is **~42 s of the suite's runtime**, nearly all of it in the two deal-order
+tests, which spawn a pool and pay the JIT warmup once per worker. Worth it: the
+pool hands results back as they finish, and `run` sorting them back into deal
+order is load-bearing for anything that reads `records[i]` as deal `i`. Removing
+that sort was checked to fail the parallel test and pass the serial one, which
+is the only reason the expensive test is there. Note that the two tests anchor
+to `play_one(setup, i)` rather than to each other -- comparing a parallel run
+against a serial one only catches a scramble if exactly one of them scrambled.
 
 **Do not add `cache=True`** to the solver's `@njit` functions. Numba 0.60
 segfaults (SIGSEGV, reliably) when loading a cached *recursive* njit function,
@@ -501,6 +520,11 @@ five tricks. `--workers` spreads deals over processes at a measured ~3x on a
 ~20 s JIT warmup once. **The answer does not depend on the worker count** --
 every deal seeds itself from its own index, so serial and parallel runs agree
 exactly, which is the cheapest available check that the parallel path is sound.
+
+`run` sorts its records back into deal order on the way out, because the pool
+hands them back as they finish. The means and counts would not care; a caller
+reading `records[i]` as deal `i` would be quietly wrong, and so would any later
+attempt to compare a parallel run against a serial one record by record.
 
 `--both` solves the same layouts in God Mode as well and reports the **paired**
 difference. Paired because both tables play identical layouts, so deal luck
