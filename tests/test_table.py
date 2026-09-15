@@ -46,8 +46,8 @@ def a_deal(seed=0, dealer=0):
     return game.deal_random(rng=random.Random(seed), dealer=dealer)
 
 
-def perfect_table():
-    return [players.PerfectPlayer() for _ in range(4)]
+def god_mode_table():
+    return [players.GodModePlayer() for _ in range(4)]
 
 
 def random_table(seed=0):
@@ -174,7 +174,7 @@ class TestLegalCards(unittest.TestCase):
                          set(hand))
 
 
-class TestPerfectTableMatchesTheBaseline(unittest.TestCase):
+class TestGodModeTableMatchesTheBaseline(unittest.TestCase):
     """
     Four God Mode players are solve_bidding, one decision at a time.
 
@@ -186,7 +186,7 @@ class TestPerfectTableMatchesTheBaseline(unittest.TestCase):
     def check(self, deal, stick=False, loners=False):
         want = b.solve_bidding(deal, stick_the_dealer=stick,
                                allow_loners=loners)
-        got = t.play_deal(deal, perfect_table(), stick_the_dealer=stick,
+        got = t.play_deal(deal, god_mode_table(), stick_the_dealer=stick,
                           allow_loners=loners)
         self.assertEqual(got.value, want.value)
         self.assertEqual(got.passed_out, want.passed_out)
@@ -211,12 +211,12 @@ class TestPerfectTableMatchesTheBaseline(unittest.TestCase):
             with self.subTest(seed=seed):
                 self.check(a_deal(seed, dealer=seed % 4), stick=True)
 
-    def test_the_play_reaches_the_double_dummy_score(self):
+    def test_the_play_reaches_the_god_mode_score(self):
         # The auction picks a contract; playing it out in God Mode has to end
         # on the score the solver gives that contract.
         for seed in range(6):
             deal = a_deal(seed, dealer=seed % 4)
-            got = t.play_deal(deal, perfect_table(), allow_loners=True)
+            got = t.play_deal(deal, god_mode_table(), allow_loners=True)
             if got.passed_out:
                 continue
             want = b.play_value(got.contract.deal, got.contract.trump,
@@ -289,11 +289,11 @@ class TestPlayIsLegal(unittest.TestCase):
                 self.check(t.play_deal(deal, random_table(seed),
                                        allow_loners=True), deal)
 
-    def test_perfect_players(self):
+    def test_god_mode_players(self):
         for seed in range(6):
             deal = a_deal(seed, dealer=seed % 4)
             with self.subTest(seed=seed):
-                self.check(t.play_deal(deal, perfect_table(),
+                self.check(t.play_deal(deal, god_mode_table(),
                                        allow_loners=True), deal)
 
     def test_a_lone_hand_scores_one_of_three_values(self):
@@ -348,7 +348,7 @@ class TestReferee(unittest.TestCase):
 
     def test_a_table_needs_four_players(self):
         with self.assertRaises(ValueError):
-            t.play_deal(a_deal(0), perfect_table()[:3])
+            t.play_deal(a_deal(0), god_mode_table()[:3])
 
 
 class TestPIMC(unittest.TestCase):
@@ -434,7 +434,7 @@ class TestPIMC(unittest.TestCase):
         self.assertEqual(tripped, [])
 
     def test_the_pass_models_both_run(self):
-        for model in (players.PASS_DD, players.PASS_ZERO):
+        for model in (players.PASS_GOD_MODE, players.PASS_ZERO):
             with self.subTest(model=model):
                 result = t.play_deal(
                     a_deal(2, dealer=1),
