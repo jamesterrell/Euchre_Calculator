@@ -1,26 +1,31 @@
 """
-The axioms, and the tests that keep them falsifiable.
+The proposed axioms, and the counterexample that killed the first one.
 
-`notes/discard_dominance.md` states Axiom 1: when the dealer picks up, some
-optimal discard is never the right bower, the left bower or the ace of trump.
-It was adopted because a sweep of 15,515 decisive God Mode positions failed to
-break it -- not because anything proves it.
+**Axiom 1 is false.** It was proposed as: when the dealer picks up, some optimal
+discard is never the right bower, the left bower or the ace of trump -- so those
+three could be struck off the candidate list for free. A sweep of 10,000 deals
+found no counterexample and it was very nearly adopted. Extending the same sweep
+to 100,000 deals found one, at a rate of about 1 in 100,000 positions.
 
-That is a dangerous kind of belief to wire into `bidding.py`. `solve_bidding`
-is this project's *exact* baseline: CLAUDE.md opens by calling God Mode "the
-exact baseline, not a model of a real table", and `tests/test_table.py` pins a
-table of four `GodModePlayer`s to it. If the axiom is false, a pruned auction
-is wrong in a way nothing would notice, because the only thing it would be
-checked against is itself.
+`notes/discard_dominance.md` has the full story. The short version is that
+`bidding.discard_candidates(prune=True)` is a **heuristic with a known
+counterexample**, not a sound prune, and this file exists to make sure nobody
+can forget that. It is off by default everywhere.
 
-So the prune is off by default everywhere, and this file is what stops it being
-a matter of faith: it runs both paths over a sample of deals and asserts they
-agree. A counterexample surfaces here as a failing test naming the deal, rather
-than as a number that is quietly a bit wrong.
+The counterexample is pinned rather than reached for by seed, for the reason
+CLAUDE.md gives about `BRUTE_FORCEABLE`: a seeded pick makes the suite's
+coverage a matter of luck, and one reseed loses the only position in the file
+that proves anything.
 
-These are deliberately a few hundred deals rather than a few dozen. Two God
-Mode auctions per deal is not cheap, but an axiom checked on twenty deals is
-decoration.
+Why it works is worth understanding, because it is the shape any further
+counterexample will have. Trump is hearts, so the dealer holds JH (the right
+bower), AH (the ace of trump) and three diamonds. Pitching the ace of trump
+keeps **three** diamonds and two trump; pitching a diamond keeps three trump and
+two diamonds. The ace is redundant sitting behind the right bower, and the extra
+diamond is worth more as length than the ace is as a winner -- so the hand with
+*fewer and weaker* trump takes all five tricks and the one with more takes four.
+That is the blocking/length effect that uniform random dealing almost never
+produces, which is exactly why 10,000 deals missed it.
 """
 import os
 import sys
@@ -34,10 +39,32 @@ import bidding as b
 import game
 import rotation as r
 
+# Seed 94137 dealt by seat 1, written out rather than reseeded. Trump is
+# hearts (KH up). The dealer holds TD KD JH 9D AH and pitching AH -- the ace of
+# trump -- is the only discard that makes a march.
+COUNTEREXAMPLE = (
+    "JC QS JD TC 9H  TD KD JH 9D AH  JS AS QH 9C QC  KC AD AC TH QD  "
+    "KH  TS 9S KS")
+COUNTEREXAMPLE_DEALER = 1
+
+
+def the_counterexample():
+    return game.deal_from_order(r.parse_hand(COUNTEREXAMPLE),
+                                dealer=COUNTEREXAMPLE_DEALER)
+
 
 def deals(n, start=0):
     return [game.deal_random(rng=random.Random(start + i), dealer=i % 4)
             for i in range(n)]
+
+
+def discard_values(deal, caller):
+    """{card: value on the dealer's own team's scale}."""
+    return {c: b.value_to(deal.dealer,
+                          b.net_to_team0(
+                              b.play_value(deal.pick_up(c), deal.up_card.suit,
+                                           caller), caller))
+            for c in deal.hands[deal.dealer]}
 
 
 class TestTopTrumps(unittest.TestCase):
@@ -61,6 +88,51 @@ class TestTopTrumps(unittest.TestCase):
             self.assertEqual(r.same_colour(left.suit), trump)
 
 
+class TestAxiomOneIsFalse(unittest.TestCase):
+    """
+    The pinned witness. If this ever starts passing as an axiom again,
+    something has changed that should not have.
+    """
+
+    def test_the_deal_is_what_the_note_says_it_is(self):
+        deal = the_counterexample()
+        self.assertEqual(deal.dealer, 1)
+        self.assertEqual(deal.up_card, r.parse_card("KH"))
+        self.assertEqual(set(deal.hands[1]), set(r.parse_hand("TD KD JH 9D AH")))
+
+    def test_pitching_the_ace_of_trump_is_uniquely_optimal(self):
+        deal = the_counterexample()
+        ace = r.parse_card("AH")
+        for caller in (1, 3):           # the dealer's own team
+            values = discard_values(deal, caller)
+            best = max(values.values())
+            optimal = [c for c, v in values.items() if v == best]
+            self.assertEqual(optimal, [ace],
+                             "caller %d: expected the ace of trump to be the "
+                             "only optimal discard, got %s"
+                             % (caller, [r.card_name(c) for c in optimal]))
+            self.assertEqual(values[ace], 2)
+            for card in deal.hands[deal.dealer]:
+                if card != ace:
+                    self.assertEqual(values[card], 1)
+
+    def test_the_prune_costs_a_march_here(self):
+        # The concrete price of the heuristic: it cannot see the only discard
+        # that makes the hand, so it reports +1 where the truth is +2.
+        deal = the_counterexample()
+        for caller in (1, 3):
+            exact, _ = b.order_up(deal, caller)
+            pruned, _ = b.order_up(deal, caller, prune=True)
+            self.assertNotEqual(exact, pruned)
+            self.assertEqual(b.value_to(deal.dealer, exact), 2)
+            self.assertEqual(b.value_to(deal.dealer, pruned), 1)
+
+    def test_the_ace_of_trump_is_not_even_in_the_pruned_candidates(self):
+        deal = the_counterexample()
+        self.assertNotIn(r.parse_card("AH"),
+                         b.discard_candidates(deal, prune=True))
+
+
 class TestDiscardCandidates(unittest.TestCase):
     def test_unpruned_is_every_dealt_card(self):
         for d in deals(40):
@@ -82,55 +154,50 @@ class TestDiscardCandidates(unittest.TestCase):
             self.assertGreaterEqual(len(b.discard_candidates(d, prune=True)), 2)
 
 
-class TestAxiomOneHolds(unittest.TestCase):
-    """The axiom itself, checked the only way it can be: by disagreement."""
+class TestThePruneIsRarelyWrong(unittest.TestCase):
+    """
+    Not "never wrong" -- that claim is dead. Just rarely, and measurably so.
 
-    def test_the_pruned_auction_matches_the_exact_one(self):
-        bad = []
-        for i, d in enumerate(deals(250)):
-            for loners in (False, True):
-                exact = b.solve_bidding(d, allow_loners=loners)
-                pruned = b.solve_bidding(d, allow_loners=loners, prune=True)
-                if exact.value != pruned.value:
-                    bad.append((i, loners, exact, pruned))
-        self.assertEqual(bad, [], "Axiom 1 is false -- a pruned auction "
-                                  "disagreed with the exact one")
+    The measured rate over 100,000 deals was 2 divergent positions in 195,964
+    (0.001%) four-handed and 1 in 146,973 alone. A few hundred deals here will
+    almost certainly see none, so this asserts a bound rather than zero: it is
+    a guard against the prune becoming *badly* wrong, not evidence that it is
+    right.
+    """
 
-    def test_the_dealers_own_choice_is_never_worse_pruned(self):
-        # Tighter than the auction test: compare order_up directly, on the
-        # dealer's own scale, for every caller. The auction can hide a bad
-        # discard behind a seat that declines to call at all.
-        for d in deals(120):
+    def test_divergence_stays_rare_on_a_sample(self):
+        diverged = 0
+        total = 0
+        for d in deals(150):
             for caller in range(game.PLAYERS):
-                exact, _ = b.order_up(d, caller)
-                pruned, _ = b.order_up(d, caller, prune=True)
-                self.assertEqual(
-                    exact, pruned,
-                    "dealer %d, caller %d: pruning changed the value of "
-                    "ordering up" % (d.dealer, caller))
-
-    def test_it_holds_for_loners_too(self):
-        for d in deals(120):
-            for caller in range(game.PLAYERS):
-                if (caller + 2) % game.PLAYERS == d.dealer:
-                    continue          # dealer sits out; discard unobservable
-                self.assertEqual(b.order_up(d, caller, alone=True)[0],
-                                 b.order_up(d, caller, alone=True,
-                                            prune=True)[0])
+                total += 1
+                if b.order_up(d, caller)[0] != b.order_up(d, caller,
+                                                          prune=True)[0]:
+                    diverged += 1
+        self.assertLess(diverged, max(2, total // 100),
+                        "the top-trump prune diverged on %d of %d positions, "
+                        "far more often than the 0.001%% measured over 100,000 "
+                        "deals -- something is wrong with it"
+                        % (diverged, total))
 
 
 class TestPruningIsOffByDefault(unittest.TestCase):
     """
     The baseline must stay exact unless somebody asks for otherwise.
 
-    An axiom that silently switched itself on would make every God Mode number
-    in CLAUDE.md conditional on it.
+    This mattered when the prune was believed sound and matters more now that
+    it is known not to be: nothing may switch it on by itself.
     """
 
     def test_solve_bidding_defaults_to_exact(self):
         for d in deals(30):
             self.assertEqual(b.solve_bidding(d).value,
                              b.solve_bidding(d, prune=False).value)
+
+    def test_the_exact_auction_still_finds_the_march(self):
+        # solve_bidding's default path has to see what the prune cannot.
+        deal = the_counterexample()
+        self.assertEqual(b.value_to(deal.dealer, b.order_up(deal, 1)[0]), 2)
 
     def test_order_up_considers_every_card_by_default(self):
         d = deals(1)[0]

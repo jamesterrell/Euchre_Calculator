@@ -776,23 +776,24 @@ Five things that are easy to get wrong and are deliberate here:
   it up, the dealer is picking up for a contract they want to fail and pitches
   accordingly. `tests/test_bidding.py` pins a deal where that costs the caller a
   march -- +1 instead of +2.
-- **Axiom 1: the dealer never has to discard a top trump.** Some optimal
-  discard is never the right bower, left bower or ace of trump, so those three
-  can be struck off the candidate list. It is an **axiom, not a theorem** --
-  adopted because 15,515 decisive God Mode positions failed to break it, not
-  because anything proves it. `notes/discard_dominance.md` has the evidence and
-  is blunt about its weakness: uniform random dealing barely ever produces the
-  blocking and endplay shapes that could break it, and neither the targeted
-  adversarial search nor the exhaustive reduced-game proof has been done.
+- **The top-trump prune is a heuristic, and a known-wrong one.** It was
+  proposed as "Axiom 1": some optimal discard is never the right bower, left
+  bower or ace of trump, so those three could be struck off for free. It
+  survived 15,515 decisive God Mode positions over 10,000 deals and was nearly
+  adopted; extending the same sweep to 100,000 deals **falsified it**. Witness,
+  pinned in `tests/test_axioms.py`: seed 94137 dealt by seat 1, hearts up, the
+  dealer holding `TD KD JH 9D AH` -- pitching the **ace of trump** is the only
+  discard that makes a march, because the ace is redundant behind the right
+  bower and the third diamond is worth more as length. Rate: 2 divergent
+  positions in 195,964 four-handed, 1 in 146,973 alone, all the same deal.
   It is **off everywhere by default** (`prune=` on `order_up` / `solve_bidding`
   / `rest_of_auction` / `best_discard`, `prune_discards=` on `PIMCPlayer`,
-  `--prune-top-trumps` on `hand_ev.py`), because switching it on silently would
-  make every God Mode number in this file conditional on an unproven claim.
-  `tests/test_axioms.py` runs the pruned and exact auctions over 250 deals and
-  asserts they agree, which is what keeps it falsifiable rather than believed.
-  Worth **1.09x** and 7.5% fewer bidding solves -- real, but not the lever it
-  looks like, since the dealer holds no top trump a third of the time and
-  usually only one when it does.
+  `--prune-top-trumps` on `hand_ev.py`) and it buys only **1.09x**, so turning
+  it on trades a march on one deal in a hundred thousand for 9% of the time.
+  Probably not worth it; see `notes/discard_dominance.md`, which also records
+  why the sweep was the wrong instrument -- uniform dealing cannot reach the
+  blocking positions where the claim breaks, which was written down *before*
+  the counterexample appeared and then confirmed by its shape.
 - **The up-card cannot be the discard.** Ordered up, it is in the dealer's hand
   to stay, so the dealer chooses among the five cards it was dealt.
   `game.Deal.pick_up` raises rather than leaving it to each call site, because

@@ -1,8 +1,13 @@
-# Axiom 1: the dealer never has to discard a top trump
+# Axiom 1 (rejected): the dealer never has to discard a top trump
 
-**Status: an axiom, not a theorem.** It is adopted because a large sweep failed
-to break it, not because anything here proves it. That distinction is the whole
-point of writing it down, so it is stated first and repeated at the end.
+**Status: FALSE.** Proposed as an axiom, nearly adopted on 10,000 deals, and
+killed by extending the same sweep to 100,000. The counterexample is pinned in
+`tests/test_axioms.py`.
+
+It is left written up rather than deleted, because the way it failed is the
+useful part: it survived 15,515 decisive positions and died at roughly 1 in
+100,000, which is what "no counterexample in a large sweep" is actually worth
+when the sweep is uniform and the counterexample is structural.
 
 ## The claim
 
@@ -17,6 +22,36 @@ Note the form. It is *not* "discarding a top trump is bad" -- it is:
 Ties are fine. A pruner only has to keep *one* optimal card, so the claim it
 needs is that a top trump is never **uniquely** optimal. That is what was
 measured.
+
+## The counterexample
+
+`game.deal_from_order`, seed 94137 dealt by seat 1. Trump is hearts (KH up).
+
+```
+dealer 1, caller 1, trump hearts, up-card KH
+dealer's hand  TD KD JH 9D AH
+  pitch AH  -> +2 to the dealer's team   <-- optimal, and the ace of trump
+  pitch TD  -> +1
+  pitch KD  -> +1
+  pitch JH  -> +1
+  pitch 9D  -> +1
+```
+
+Pitching the **ace of trump** is the only discard that makes a march, and the
+prune cannot see it. Same deal, same result with caller 3, and again when the
+contract is played alone.
+
+**Why it works**, because this is the shape any further counterexample will
+have: the dealer holds JH (the right bower), AH (the ace of trump) and three
+diamonds. Pitching the ace keeps three diamonds and two trump; pitching a
+diamond keeps three trump and two diamonds. The ace is redundant sitting behind
+the right bower, and the third diamond is worth more as *length* than the ace is
+as a winner -- so the holding with fewer and weaker trump takes all five tricks
+and the one with more takes four.
+
+That is a blocking-and-length effect. It is precisely the structure that uniform
+random dealing almost never produces, and precisely why 10,000 deals saw
+nothing.
 
 ## What was measured
 
@@ -41,6 +76,17 @@ legal discard, so the dealer chooses among its five dealt cards.
 
 No counterexample in **9,006 decisive four-handed positions** and **6,509
 decisive alone positions**.
+
+### ...and then at 100,000
+
+| | four-handed | alone |
+| --- | --- | --- |
+| (deal, caller) pairs with a top trump held | 195,964 | 146,973 |
+| **counterexamples** | **2** (0.0010%) | **1** (0.0007%) |
+
+All three are the same deal. Right bower: 0. Left bower: 0. **Ace of trump: 2
+and 1.** So the claim is false for the ace and survives -- so far, and only so
+far -- for the two bowers.
 
 ## Read the denominator carefully
 
@@ -134,10 +180,25 @@ they agree, and compares `order_up` directly for every caller besides. A
 counterexample surfaces as a failing test naming the deal, not as a number that
 is quietly a bit wrong.
 
-## Statement
+## Statement, as it now stands
 
-> **Axiom 1.** When the dealer picks up, some optimal discard is not the right
-> bower, the left bower, or the ace of trump.
+> ~~**Axiom 1.** When the dealer picks up, some optimal discard is not the right
+> bower, the left bower, or the ace of trump.~~ **False.** Witness: seed 94137,
+> dealer 1, hearts. The ace of trump is the uniquely optimal discard.
 
-Adopted on 15,515 decisive God Mode positions with no counterexample. Not
-proved. Not adversarially tested.
+What survives is a much weaker, and merely empirical, statement:
+
+> The top-trump prune changes the value of ordering up on about **1 position in
+> 100,000**, and when it does it costs a march (+1 where the truth is +2).
+
+That is a heuristic with a measured error rate, not an axiom. It is off by
+default and `tests/test_axioms.py` pins the witness so the distinction cannot
+quietly erode.
+
+**The lesson worth keeping.** The estimate that mattered was never the sample
+size. It was that uniform random dealing cannot reach the positions where the
+claim breaks -- stated in this file *before* the counterexample turned up, and
+then confirmed by the counterexample being exactly a blocking-and-length
+position. A targeted adversarial search or the exhaustive reduced-game proof
+would have found this in minutes rather than in 100,000 deals. Do that first
+next time.
