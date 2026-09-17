@@ -51,7 +51,8 @@ UP = r.parse_card("9S")
 
 
 def a_setup(seat=0, dealer=3, up_card=UP, hand=None, player_eval_sims=1,
-            bid_eval_sims=None, pass_model=h.players.PASS_ZERO,
+            bid_eval_sims=None, discard_eval_sims=None,
+            pass_model=h.players.PASS_ZERO,
             allow_loners=True, stick=False, seed=0, epsilon=None):
     return h.Setup(
         hand=tuple(HAND if hand is None else hand),
@@ -59,6 +60,10 @@ def a_setup(seat=0, dealer=3, up_card=UP, hand=None, player_eval_sims=1,
         player_eval_sims=player_eval_sims,
         bid_eval_sims=(player_eval_sims if bid_eval_sims is None
                        else bid_eval_sims),
+        # Track player_eval_sims rather than hand_ev's real default, so the
+        # fixture stays as cheap as the tests need it to be.
+        discard_eval_sims=(player_eval_sims if discard_eval_sims is None
+                           else discard_eval_sims),
         pass_model=pass_model, allow_loners=allow_loners, stick=stick,
         seed=seed, epsilon=epsilon)
 
@@ -298,13 +303,37 @@ class TestTheCommandLine(unittest.TestCase):
         args = h.parse_args(["JS AS 9H 9D TC"])
         self.assertEqual(args.pass_model, h.players.PASS_ZERO)
         self.assertEqual(args.deals, h.DEALS)
-        self.assertEqual(args.player_eval_sims, h.PLAYER_EVAL_SIMS)
+        # The eval-sim flags parse as None and are resolved in setup_from,
+        # because "unset" has to be distinguishable from "set to the default":
+        # an explicit --player-eval-sims carries to the other two kinds, and
+        # leaving it off gives each kind its own measured mean instead.
+        self.assertIsNone(args.player_eval_sims)
+        self.assertEqual(h.setup_from(args).player_eval_sims,
+                         h.PLAYER_EVAL_SIMS)
 
     def test_bid_eval_sims_follows_player_eval_sims(self):
-        setup = h.setup_from(h.parse_args(
-            ["JS AS 9H 9D TC", "--player-eval-sims", "7"]))
+        # --player-eval-sims carries to every kind. It has always done that,
+        # and a run pinned at "10000 eval sims" has to keep meaning all three.
+        setup = h.setup_from(h.parse_args(["JS AS 9H 9D TC", "--player-eval-sims", "7"]))
         self.assertEqual(setup.player_eval_sims, 7)
         self.assertEqual(setup.bid_eval_sims, 7)
+        self.assertEqual(setup.discard_eval_sims, 7)
+
+    def test_each_kind_defaults_to_its_own_measured_mean(self):
+        # With nothing given, each decision kind gets the mean number of worlds
+        # it actually needs -- see notes/settle_counts.md.
+        setup = h.setup_from(h.parse_args(["JS AS 9H 9D TC"]))
+        self.assertEqual(setup.player_eval_sims, h.PLAYER_EVAL_SIMS)
+        self.assertEqual(setup.bid_eval_sims, h.BID_EVAL_SIMS)
+        self.assertEqual(setup.discard_eval_sims, h.DISCARD_EVAL_SIMS)
+
+    def test_an_explicit_kind_beats_the_carried_value(self):
+        setup = h.setup_from(h.parse_args(
+            ["JS AS 9H 9D TC", "--player-eval-sims", "7",
+             "--discard-eval-sims", "50"]))
+        self.assertEqual(setup.player_eval_sims, 7)
+        self.assertEqual(setup.bid_eval_sims, 7)
+        self.assertEqual(setup.discard_eval_sims, 50)
 
     def test_bid_eval_sims_can_be_set_apart(self):
         setup = h.setup_from(h.parse_args(

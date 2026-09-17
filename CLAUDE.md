@@ -629,6 +629,21 @@ than solved, so the reported EV includes the deals where the hand gets passed
 out, ordered up by somebody else, or over-called -- which is why the report
 breaks the mean down by who ended up with the contract.
 
+**Each decision kind defaults to the number of worlds it actually needs**:
+`PLAYER_EVAL_SIMS = 132` for a card, `BID_EVAL_SIMS = 231` for a bid,
+`DISCARD_EVAL_SIMS = 266` for a discard -- the measured mean settle points from
+`notes/settle_counts.md`. At those budgets **99.4-99.8% of decisions with a real
+margin (>0.15) keep the leader they finish with**; the ones that drift are
+near-ties, where either answer is worth the same. `--player-eval-sims` still
+carries to all three when given, so `--player-eval-sims 10000` means what it
+always did; `--bid-eval-sims` and `--discard-eval-sims` override individually.
+`PIMCPlayer.discard_samples` defaults to `bid_samples`, so `pimc_sweep.py` and
+every measurement above are unchanged.
+
+The old default was 10 worlds a card decision -- below `min_worlds`, so it could
+never race at all. The new ones cost 1.052 s/deal at `epsilon 0.05` and 0.481 at
+`epsilon 0.40`, against 0.39 for the old 10, so 2.7x for 13x the worlds.
+
 **Two nested sim counts, and they do different jobs.** `--deals` is the outer
 loop, the total hand sims, and it is the only one the error bar is on: outcomes
 run -4..+4 with a standard deviation near 2, so the 95% interval is about

@@ -106,7 +106,15 @@ import rotation as r
 import table as t
 
 DEALS = 1000
-PLAYER_EVAL_SIMS = 10
+
+# Defaults per decision kind, set to the measured mean number of sampled worlds
+# each needs before its argmax stops moving -- 40,390 decisions, see
+# notes/settle_counts.md. At these budgets 99.4-100% of decisions with a real
+# margin (>0.15) keep the leader they finish with; the ones that drift are
+# near-ties, where either answer is worth the same by construction.
+PLAYER_EVAL_SIMS = 132          # a card:    mean 132.3 +/- 4.2
+BID_EVAL_SIMS = 231             # a bid:     mean 231.1 +/- 12.3
+DISCARD_EVAL_SIMS = 266         # a discard: mean 265.8 +/- 19.9
 EPSILON = 0.05
 
 
@@ -139,6 +147,7 @@ class Setup:
     dealer: int
     player_eval_sims: int
     bid_eval_sims: int
+    discard_eval_sims: int
     pass_model: str
     allow_loners: bool
     stick: bool
@@ -159,6 +168,7 @@ class Setup:
         """Four PIMC sim players, seeded per deal and per seat."""
         return [players.PIMCPlayer(samples=self.player_eval_sims,
                                    bid_samples=self.bid_eval_sims,
+                                   discard_samples=self.discard_eval_sims,
                                    pass_model=self.pass_model,
                                    epsilon=self.epsilon,
                                    prune_discards=self.prune_discards,
@@ -375,14 +385,19 @@ def parse_args(argv=None):
     parser.add_argument("--deals", type=int, default=DEALS,
                         help="layouts of the other seats to play out (default "
                              "%d). This is the axis the error bar is on" % DEALS)
-    parser.add_argument("--player-eval-sims", type=int,
-                        default=PLAYER_EVAL_SIMS,
+    parser.add_argument("--player-eval-sims", type=int, default=None,
                         help="worlds each player imagines per card-play "
-                             "decision (default %d)" % PLAYER_EVAL_SIMS)
+                             "decision (default %d, the measured mean settle "
+                             "point). Setting it also carries the bid and "
+                             "discard budgets with it unless those are given "
+                             "explicitly" % PLAYER_EVAL_SIMS)
     parser.add_argument("--bid-eval-sims", type=int, default=None,
-                        help="worlds per bidding decision; defaults to "
-                             "--player-eval-sims. These cost far more each "
-                             "under the 'god' pass model")
+                        help="worlds per bidding decision (default %d). These "
+                             "cost far more each under the 'god' pass model"
+                             % BID_EVAL_SIMS)
+    parser.add_argument("--discard-eval-sims", type=int, default=None,
+                        help="worlds per discard decision (default %d -- the "
+                             "hungriest of the three)" % DISCARD_EVAL_SIMS)
     parser.add_argument("--pass-model", default=players.PASS_ZERO,
                         choices=(players.PASS_ZERO, players.PASS_GOD_MODE),
                         help="how a player prices passing: 'zero' is worth "
@@ -417,6 +432,23 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def _budget(explicit, carried, measured):
+    """
+    One decision kind's sample budget.
+
+    Three levels, and the middle one is the reason this is a function rather
+    than an `or`: an explicit `--bid-eval-sims` wins; failing that
+    `--player-eval-sims` carries to every kind, which is what it has always
+    done and what `--player-eval-sims 10000` has to keep meaning; failing that
+    the kind's own measured mean settle point applies.
+    """
+    if explicit is not None:
+        return explicit
+    if carried is not None:
+        return carried
+    return measured
+
+
 def setup_from(args) -> Setup:
     hand = tuple(r.parse_hand(args.hand))
     if len(hand) != game.HAND_SIZE:
@@ -432,10 +464,14 @@ def setup_from(args) -> Setup:
                              % (name, game.PLAYERS - 1, value))
 
     return Setup(hand=hand, up_card=up_card, seat=args.seat,
-                 dealer=args.dealer, player_eval_sims=args.player_eval_sims,
-                 bid_eval_sims=(args.player_eval_sims
-                                if args.bid_eval_sims is None
-                                else args.bid_eval_sims),
+                 dealer=args.dealer,
+                 player_eval_sims=_budget(args.player_eval_sims, None,
+                                          PLAYER_EVAL_SIMS),
+                 bid_eval_sims=_budget(args.bid_eval_sims,
+                                       args.player_eval_sims, BID_EVAL_SIMS),
+                 discard_eval_sims=_budget(args.discard_eval_sims,
+                                           args.player_eval_sims,
+                                           DISCARD_EVAL_SIMS),
                  pass_model=args.pass_model, epsilon=args.epsilon,
                  prune_discards=args.prune_top_trumps,
                  allow_loners=not args.no_loners, stick=args.stick,
@@ -452,9 +488,10 @@ def describe(setup: Setup, args):
     print("  %-30s seat %d, dealer %d, you speak %d of %d"
           % ("seating", setup.seat, setup.dealer,
              order.index(setup.seat) + 1, game.PLAYERS))
-    print("  %-30s %d deals x %d play / %d bid eval sims, pass model %r%s%s%s"
+    print("  %-30s %d deals x %d play / %d bid / %d discard eval sims, "
+          "pass model %r%s%s%s"
           % ("sweep", args.deals, setup.player_eval_sims, setup.bid_eval_sims,
-             setup.pass_model,
+             setup.discard_eval_sims, setup.pass_model,
              ", exact (no early stop)" if setup.epsilon is None
              else ", epsilon %g" % setup.epsilon,
              "" if setup.allow_loners else ", loners off",

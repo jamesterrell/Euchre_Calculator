@@ -97,6 +97,79 @@ almost entirely of ties.
   Discard is the worst of the three (mean 265.8), which is a fair bit of work
   for a decision with five options that are frequently interchangeable.
 
+## Is the sample big enough, and what budget follows
+
+Yes, comfortably — for the statistic that matters.
+
+| kind | n | mean settle | standard error | 95% CI |
+| --- | --- | --- | --- | --- |
+| bid | 6,091 | 231.1 | 6.30 | ± 12.3 |
+| discard | 2,617 | 265.8 | 10.16 | ± 19.9 |
+| play | 31,682 | 132.3 | 2.15 | ± 4.2 |
+| pooled | 40,390 | 155.9 | 2.06 | ± 4.0 |
+
+Every mean is pinned to better than ±5%. More deals would not move them.
+
+**But the mean is not what justifies a budget** — it is inflated by the ties,
+which sit at `N_max` and would sit at any other `N_max` too. The number that
+justifies a budget is how often the leader *stays* the leader among decisions
+that have a real margin. "Leader stays leader" is exactly the settle criterion:
+the pick after `B` worlds equals the pick after 2,000.
+
+**Share of decisions whose pick at `B` equals the final pick:**
+
+| kind | margin band | n | B=24 | B=100 | B=156 | B=266 | B=800 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| bid | **real (>0.15)** | 4,087 | 90.6% | 98.4% | **99.4%** | 99.8% | 100% |
+| bid | slim (0.05–0.15) | 827 | 22.5% | 43.4% | 52.6% | 64.1% | 92.3% |
+| bid | near-tie (≤0.05) | 1,173 | 7.1% | 13.0% | 16.8% | 22.3% | 43.8% |
+| discard | **real (>0.15)** | 867 | 90.5% | 99.4% | **99.8%** | 100% | 100% |
+| discard | slim | 573 | 55.0% | 75.6% | 83.4% | 91.3% | 99.5% |
+| discard | near-tie | 866 | 22.2% | 32.7% | 36.8% | 43.9% | 60.9% |
+| play | **real (>0.15)** | 9,199 | 89.7% | 99.0% | **99.7%** | 99.9% | 100% |
+| play | slim | 3,660 | 63.4% | 81.9% | 87.7% | 92.7% | 98.8% |
+| play | near-tie | 5,985 | 32.6% | 44.1% | 48.7% | 55.1% | 71.1% |
+
+Read the bold row. **A budget of ~150 holds 99.4–99.8% of the decisions that
+have a real margin.** The near-tie rows keep drifting at every budget, which is
+the expected behaviour and not a defect: those are the decisions where the
+options are worth the same, so whichever one the drift lands on costs nothing.
+
+Note also that going from 24 to 156 buys about 9 percentage points of
+real-margin decisions, and going from 156 to 800 buys 0.3–0.6. The curve is
+almost entirely flat past ~150 for anything that matters.
+
+## The defaults that follow
+
+`hand_ev.py` now defaults each kind to its own measured mean:
+
+```python
+PLAYER_EVAL_SIMS = 132          # a card:    mean 132.3 +/- 4.2
+BID_EVAL_SIMS = 231             # a bid:     mean 231.1 +/- 12.3
+DISCARD_EVAL_SIMS = 266         # a discard: mean 265.8 +/- 19.9
+```
+
+`PIMCPlayer` gained a `discard_samples` knob for the third of those; it
+defaults to `bid_samples`, so `pimc_sweep.py`, `pimc_example.py` and every
+measurement already in CLAUDE.md are unchanged. Only `hand_ev.py` adopts the
+new numbers.
+
+Two things worth being clear about:
+
+- The old `hand_ev` default was **10** worlds per card decision, which is below
+  even the 24-world floor at which `_race` will drop anything — so the old
+  default could never race at all, and was running a tenth of the evidence a
+  card decision wants. The new defaults are a genuine quality change. Measured
+  cost on the pinned hand: **1.052 s/deal at `epsilon 0.05`, 0.481 at
+  `epsilon 0.40`**, against 0.39 s/deal for the old 10-sim default. So roughly
+  2.7x for 13x the worlds per card decision — the band absorbs most of it.
+- Using the mean is a conservative choice rather than a tuned one. The
+  real-margin coverage table says ~150 would do for all three kinds; the
+  per-kind means (132/231/266) all sit at or above that, so bidding and
+  discarding are being given more than the evidence demands. That is the safe
+  direction, and cheap, since `epsilon` stops most of those decisions early
+  anyway.
+
 ## What this is not
 
 - **Hindsight, so a lower bound.** The reference answer is read off the end of

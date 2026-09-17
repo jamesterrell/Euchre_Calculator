@@ -378,6 +378,7 @@ class PIMCPlayer:
     """
 
     def __init__(self, samples: int = 20, bid_samples: Optional[int] = None,
+                 discard_samples: Optional[int] = None,
                  pass_model: str = PASS_GOD_MODE, tie_break: str = LOW,
                  rng: Optional[random.Random] = None,
                  epsilon: Optional[float] = None,
@@ -389,6 +390,12 @@ class PIMCPlayer:
             raise ValueError("epsilon must not be negative: %r" % (epsilon,))
         self.samples = samples
         self.bid_samples = samples if bid_samples is None else bid_samples
+        # Discard gets its own budget because it needs the most: a mean of 266
+        # worlds before its argmax settles, against 231 for a bid and 132 for a
+        # card (notes/settle_counts.md). Defaults to bid_samples, so nothing
+        # that does not ask for it sees any change.
+        self.discard_samples = (self.bid_samples if discard_samples is None
+                                else discard_samples)
         self.pass_model = pass_model
         self.tie_break = tie_break
         self.rng = rng or random.Random()
@@ -500,7 +507,7 @@ class PIMCPlayer:
                 out[card] = to_seat(value, turn.caller, turn.seat)
             return out
 
-        sums, counts, alive = _race(candidates, draw, self.bid_samples,
+        sums, counts, alive = _race(candidates, draw, self.discard_samples,
                                     self.epsilon, self.min_worlds)
         self.last_scores = _means(candidates, sums, counts)
         self.last_samples = {c: counts[i] for i, c in enumerate(candidates)}
