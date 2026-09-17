@@ -601,53 +601,71 @@ not free" turning up as a measurement trap rather than a bidding one -- do not
 read a per-call average as a strength number. What `"zero"` reliably is, is
 about 4x faster.
 
-**A third pass model, `"floor"`, and it is the sharpest version of the trap
-above.** `pass_model="floor"` is `"god"` with a pass floored at zero --
-`max(rest_of_auction, 0)`. The reasoning is sound: `"god"` prices a pass at
-whatever the rest of the auction does, and inside a sampled world the other
-seats can see the hand this player is hiding, so the pass branch reads "an
-opponent calls this and makes it" far more often than a real table would. A
-seat with a bad hand then makes a desperate call because declining looked
-worse. Flooring at zero removes exactly that pessimism.
+**Two more pass models were tried, and both are worse. The attempt is worth
+recording because of what it rules out.**
 
-It works, on every measure except the one that counts. Same 60 deals, 20 play /
-10 bid samples:
+Both target the same flaw: `"god"` prices a pass at whatever the rest of the
+auction does, and inside a sampled world the other seats can see the hand this
+player is hiding, so the pass branch reads "an opponent calls this and makes
+it" far more often than a real table would. A seat with a bad hand then makes a
+desperate call because declining looked worse.
 
-|                           | `zero` | `god` | `floor` |
-| ------------------------- | ------ | ----- | ------- |
-| euchred                   | 11.7%  | 36.7% | **15.3%** |
-| contracts made            | 53/60  | 38/60 | 50/59   |
-| ordered up in round one   | 58     | 54    | **33**  |
-| named a suit in round two |  2     |  6    | **26**  |
-| called alone              |  5.0%  |  8.3% | 18.3%   |
-| passed out                |  0     |  0    | **1**   |
-| mean tricks to the caller | 3.57   | 2.85  | 3.54    |
+- `"floor"` clamps a pass at zero **per sampled world**: `sum(max(g_w, 0))`.
+- `"guard"` is `"god"` plus one **decision-level** override: if every call is
+  negative once all the worlds are averaged, pass; otherwise price the pass
+  exactly as `"god"` does.
 
-The auction shape is the most realistic the project has produced. Round-one
-orders collapse from 54 to 33 and round-two calls rise from 6 to 26 -- once
-declining cannot be worse than nothing, seats stop grabbing the up-card out of
-fear and turn it down to name a better suit. It also produced **the first
-pass-out ever seen in a `pimc_sweep`**.
+They are not the same rule -- by Jensen the per-world clamp is systematically
+kinder to passing -- but they behave almost identically, which is the first
+thing the measurement settled.
 
-**And it is the weakest player of the three.** Head to head against God Mode,
-teams swapped on every deal, 250 deals:
+Profile over 60 deals, 20 play / 10 bid samples:
+
+|                           | `zero` | `god` | `floor` | `guard` |
+| ------------------------- | ------ | ----- | ------- | ------- |
+| euchred                   | 11.7%  | 36.7% | 15.3%   | **21.7%** |
+| ordered up in round one   | 58     | 54    | 33      | 37      |
+| named a suit in round two |  2     |  6    | 26      | 23      |
+| called alone              |  5.0%  |  8.3% | 18.3%   | 18.3%   |
+| passed out                |  0     |  0    | **1**   |  0      |
+| mean tricks to the caller | 3.57   | 2.85  | 3.54    | 3.40    |
+
+Both produce a far more realistic-looking auction than `"god"` -- round-one
+orders roughly halve and round-two calls rise five-fold, because a seat that is
+not frightened of declining turns the up-card down and names a better suit.
+`"floor"` produced **the first pass-out ever seen in a `pimc_sweep`**.
+
+**And both are significantly weaker players.** Head to head against God Mode,
+teams swapped on every deal, **250 deals each**:
 
 | pass model | margin per deal |
 | ---------- | --------------- |
 | `zero`     | **-1.064 +/- 0.152** |
-| `god`      | -1.280 +/- 0.380 (50 deals) |
-| `floor`    | **-1.468 +/- 0.164** |
+| `god`      | **-1.112 +/- 0.151** |
+| `guard`    | -1.388 +/- 0.167 |
+| `floor`    | -1.468 +/- 0.164 |
 
-`floor` is worse than `zero` by **0.404 +/- 0.22 points a deal**, z ~ 3.5. That
-is a real difference, not noise, and the point estimates barely moved between
-50 and 250 deals (-1.060 to -1.064, -1.460 to -1.468).
+`zero` and `god` are indistinguishable (0.048 apart), which reproduces the
+50-deal finding above at five times the sample. Both new models lose to both
+old ones by about 0.3 points a deal, z ~ 2.4-2.8. `guard` and `floor` are
+indistinguishable from each other (0.080 apart, z ~ 0.7), so **the per-world
+versus decision-level distinction accounts for almost none of the damage** --
+worth knowing, because it was the obvious hypothesis and it is wrong.
 
-Why: it **under-calls**. Flooring the pass makes declining artificially
-attractive, so it turns down contracts it should take. The euchre rate falls
-because it calls less often, not because it calls better -- which is the same
-confusion in the opposite direction from `"zero"`'s flattering per-call
-average. Three models now, and **the ranking by euchre rate is uncorrelated
-with the ranking by strength**. Judge a bidder head to head or not at all.
+**What actually costs the points.** `"guard"` differs from `"god"` in exactly
+one situation: when every call is negative and the least-bad call is still
+better than `"god"`'s estimate of passing, `"god"` takes that call and
+`"guard"` passes instead. That single change is the whole -0.276. So taking the
+**least-bad losing call beats passing**, and the intuition that a bad hand
+should be thrown in is simply wrong here. It is `bidding.py`'s "passing is not
+free" again, now measured on the PIMC side: if you pass, somebody else calls
+and scores, and `"god"`'s pessimism about that is closer to right than a floor
+at zero is.
+
+The euchre rate is not a strength metric. Across four models it is
+**uncorrelated** with head-to-head margin -- `zero` has the best euchre rate
+and the best margin, but `floor` has the second-best euchre rate and the worst
+margin. Judge a bidder head to head or not at all.
 
 **Nothing ever passes out, under either model** -- 0 of 60 in the main sweep and
 0 of 40 in all five diagnostic configurations. That was the one prediction in

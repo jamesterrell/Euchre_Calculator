@@ -52,12 +52,19 @@ the auction -- up to 36 solves per sampled world.
             more often than a real table would.
     "zero"  a pass is worth nothing. About 4x faster and a markedly more
             selective bidder; euchre rate is roughly half "god"'s.
+    "guard" "god", plus one override: if **every** call comes out negative on
+            its own merits, pass. Otherwise price the pass exactly as "god"
+            does. Applied to the averaged values once all the worlds are in,
+            which is what separates it from "floor" -- see `_guard`. Measured:
+            euchre rate 21.7%, and **0.28 points a deal worse than "god"** head
+            to head. The per-world-versus-decision-level distinction turned out
+            to explain almost none of "floor"'s weakness, and the cost is the
+            override itself -- taking the least-bad losing call beats passing.
     "floor" "god", but a pass is never worth less than nothing:
             `max(rest_of_auction, 0)`. Same cost as "god", since it runs the
-            same solves. It fixes what it was meant to fix -- the euchre rate
-            falls from 36.7% to 15.3% -- and it is the **weakest of the three
-            players**, which is the point of keeping it documented. See the
-            module notes in CLAUDE.md before reaching for it.
+            same solves. Euchre rate falls from 36.7% to 15.3%, and it is the
+            **weakest of the four** head to head. Kept documented rather than
+            deleted; see CLAUDE.md before reaching for it.
 
 **Neither is clearly stronger.** Head to head against God Mode with the teams
 swapped on every deal, "god" scores -1.26 +/- 0.36 points a deal and "zero"
@@ -86,7 +93,8 @@ from game import Deal, PLAYERS
 PASS_GOD_MODE = "god"
 PASS_ZERO = "zero"
 PASS_FLOOR = "floor"
-PASS_MODELS = (PASS_GOD_MODE, PASS_ZERO, PASS_FLOOR)
+PASS_GUARD = "guard"
+PASS_MODELS = (PASS_GOD_MODE, PASS_ZERO, PASS_FLOOR, PASS_GUARD)
 
 # Tie-breaks among options the search rates identically.
 LOW = "low"
@@ -487,7 +495,38 @@ class PIMCPlayer:
         self.last_scores = _means(turn.options, sums, counts)
         self.last_samples = {o: counts[i] for i, o in enumerate(turn.options)}
         live = tuple(turn.options[i] for i in alive)
+
+        if self.pass_model == PASS_GUARD:
+            forced = self._guard(turn)
+            if forced is not None:
+                return forced
         return _pick(self.last_scores, live)
+
+    def _guard(self, turn: "t.BidTurn"):
+        """
+        PASS_GUARD: never take a call that is negative on its own merits.
+
+        The rule is "if every call has negative EV, pass; otherwise evaluate
+        passing normally". It is a **decision-level** override, applied to the
+        averaged values after all the worlds are in, and that is the whole
+        difference between it and PASS_FLOOR.
+
+        PASS_FLOOR clamps inside `_bid_value`, which runs once per sampled
+        world, so it computes `sum(max(g_w, 0))` -- every individual world where
+        passing went badly is thrown away and replaced by zero. This computes
+        at most `max(sum(g_w), 0)`, and by Jensen those are not the same
+        number: the per-world clamp is systematically far kinder to passing,
+        which is why `"floor"` under-calls and this does not.
+
+        Returns the pass option when the guard fires, else None.
+        """
+        passes = [o for o in turn.options if o.action == t.PASS]
+        calls = [o for o in turn.options if o.action != t.PASS]
+        if not passes or not calls:
+            return None          # stick-the-dealer leaves nothing to guard
+        if all(self.last_scores.get(o, 0.0) < 0 for o in calls):
+            return passes[0]
+        return None
 
     def _bid_value(self, option: "t.Bid", deal: Deal,
                    turn: "t.BidTurn") -> int:
