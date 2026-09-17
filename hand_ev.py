@@ -112,9 +112,11 @@ DEALS = 1000
 # notes/settle_counts.md. At these budgets 99.4-100% of decisions with a real
 # margin (>0.15) keep the leader they finish with; the ones that drift are
 # near-ties, where either answer is worth the same by construction.
-PLAYER_EVAL_SIMS = 132          # a card:    mean 132.3 +/- 4.2
-BID_EVAL_SIMS = 231             # a bid:     mean 231.1 +/- 12.3
-DISCARD_EVAL_SIMS = 266         # a discard: mean 265.8 +/- 19.9
+# Canonical home is players.py -- these are a property of the player, not of
+# this script. Unlike the PIMC sim scripts, hand_ev adopts them as its default.
+PLAYER_EVAL_SIMS = players.RESEARCHED_PLAY
+BID_EVAL_SIMS = players.RESEARCHED_BID
+DISCARD_EVAL_SIMS = players.RESEARCHED_DISCARD
 EPSILON = 0.05
 
 

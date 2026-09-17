@@ -169,6 +169,37 @@ def _pick(scored, order, tie_break=LOW, trump=None):
     return tied[0]
 
 
+# ------------------------------------------------- researched budgets
+
+# How many sampled worlds each kind of decision actually needs before its
+# argmax stops moving, measured over 40,390 decisions -- notes/settle_counts.md.
+# At these budgets 99.4-99.8% of decisions with a real margin (>0.15) keep the
+# leader they finish with. The ones that drift are near-ties, where either
+# answer is worth the same by construction.
+#
+# They live here rather than in one of the scripts because they are a property
+# of the player, not of whichever tool is driving it. They are **not** the
+# PIMCPlayer defaults: pimc_sweep.py and pimc_example.py keep their historical
+# sample counts so every measurement in CLAUDE.md stays comparable, and opt in
+# with --researched-defaults.
+RESEARCHED_PLAY = 132            # a card:    mean settle 132.3 +/- 4.2
+RESEARCHED_BID = 231             # a bid:     mean settle 231.1 +/- 12.3
+RESEARCHED_DISCARD = 266         # a discard: mean settle 265.8 +/- 19.9
+
+
+def sample_budget(explicit, use_researched, researched, fallback):
+    """
+    One decision kind's sample count, from the three places it can come from.
+
+    An explicit flag wins; failing that `--researched-defaults` supplies the
+    measured mean; failing that the caller's own historical default applies, so
+    a script that is not asked to change does not change.
+    """
+    if explicit is not None:
+        return explicit
+    return researched if use_researched else fallback
+
+
 # --------------------------------------------- sequential elimination
 
 # A PIMC decision averages every option over N sampled worlds and takes the

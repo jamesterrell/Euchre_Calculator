@@ -60,7 +60,18 @@ python pimc_example.py --pass-model zero  # ...with passing priced at nothing
 python pimc_sweep.py                      # 40 deals, PIMC sim vs God Mode
 python pimc_sweep.py 60 --head-to-head    # what does seeing actually buy?
 python pimc_sweep.py 100 --pass-model zero --bid-samples 16
+python pimc_sweep.py 60 --researched-defaults   # 132/231/266 a decision
+python pimc_example.py --researched-defaults
 ```
+
+`--researched-defaults` on either PIMC sim script sets all three sample counts
+to the measured mean settle point for that kind of decision -- 132 play, 231
+bid, 266 discard, from `notes/settle_counts.md`. It is **off by default** and
+both scripts keep their historical counts (20/10 for the sweep, 24/16 for the
+example), so every measurement recorded in this file stays comparable. The
+constants live in `players.py` as `RESEARCHED_PLAY` / `RESEARCHED_BID` /
+`RESEARCHED_DISCARD`, since they are a property of the player rather than of
+any one script; `hand_ev.py` is the one tool that adopts them as its default.
 
 And the EV of one pinned hand, which is the question the calculator exists to
 answer -- same PIMC sim table, but every sampled layout is played out rather
