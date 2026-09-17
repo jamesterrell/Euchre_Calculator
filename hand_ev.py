@@ -82,11 +82,16 @@ per 10 sims.
 So the sweep is priced by `deals` and `epsilon`, and `--player-eval-sims` is
 close to free above ~800:
 
-    deals   epsilon   serial        10 workers
-    1,000      0.40   ~8 minutes    ~2 minutes
-   10,000      0.40   ~76 minutes   ~20 minutes
-   10,000      0.15   ~4 hours      ~52 minutes
-   10,000      none   ~45 days      ~10 days      (at 10,000 eval sims)
+    deals   eval sims   epsilon   serial        10 workers
+   10,000     default      0.05   ~2.8 hours    ~34 minutes
+    1,000      10,000      0.40   ~8 minutes    ~2 minutes
+   10,000      10,000      0.40   ~76 minutes   ~20 minutes
+   10,000      10,000      0.15   ~4 hours      ~52 minutes
+   10,000      10,000      none   ~45 days      ~10 days
+
+The first row is a bare run at today's defaults -- 132/231/266 eval sims at
+epsilon 0.05, measured at 0.205 s/deal. The rest are the earlier runs at 10,000
+eval sims, which is what the epsilon comparison below was measured on.
 
 The band is not free, and what it costs was measured rather than assumed: over
 900 paired deals at 400 eval sims, `--epsilon 0.15` moved the answer by

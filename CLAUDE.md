@@ -29,7 +29,7 @@ Tests. The unit suite is stdlib `unittest`, so it needs nothing beyond numpy
 and numba:
 
 ```bash
-python -m unittest discover               # whole suite, ~240s including JIT warmup
+python -m unittest discover               # whole suite, 399 tests, ~110s
 python -m unittest tests.test_solver      # one module
 python -m unittest tests.test_solver.TestLeftBower -v
 python tests/test_solver.py               # or run a file directly
@@ -307,7 +307,7 @@ every reported number is on the asking seat's own team's scale -- derived from
 the caller's score rather than compared against the conversion that produced it,
 since a sign error is invisible on any deal where the two teams agree.
 
-It is **~42 s of the suite's runtime**, nearly all of it in the two deal-order
+It is **~29 s of the suite's runtime**, nearly all of it in the two deal-order
 tests, which spawn a pool and pay the JIT warmup once per worker. Worth it: the
 pool hands results back as they finish, and `run` sorting them back into deal
 order is load-bearing for anything that reads `records[i]` as deal `i`. Removing
@@ -678,8 +678,9 @@ The euchre rate is not a strength metric. Across four models it is
 and the best margin, but `floor` has the second-best euchre rate and the worst
 margin. Judge a bidder head to head or not at all.
 
-**Nothing ever passes out, under either model** -- 0 of 60 in the main sweep and
-0 of 40 in all five diagnostic configurations. That was the one prediction in
+**Nothing ever passes out, under either of the two original models** -- 0 of 60
+in the main sweep and 0 of 40 in all five diagnostic configurations. (`"floor"`,
+added later and covered above, does pass hands in.) That was the one prediction in
 this file that did not come true, and the pass model does not explain it:
 `"zero"` prices a pass at exactly nothing and still never throws a hand in. The
 reason is the number of chances. Eight seats bid in turn, and each round-two
@@ -788,12 +789,20 @@ days**. `--epsilon` breaks that second axis; see "Stopping early" above. With
 the band on, cost is flat in the sample count above ~800 worlds a decision, so
 the sweep is priced by `deals` and `epsilon` alone:
 
-| deals  | epsilon | serial      | 10 workers  |
-| ------ | ------- | ----------- | ----------- |
-|  1,000 | 0.40    | ~8 minutes  | ~2 minutes  |
-| 10,000 | 0.40    | ~76 minutes | ~20 minutes |
-| 10,000 | 0.15    | ~4 hours    | ~52 minutes |
-| 10,000 | none    | ~45 days    | ~10 days    |
+| deals  | eval sims | epsilon | serial      | 10 workers  |
+| ------ | --------- | ------- | ----------- | ----------- |
+| 10,000 | **default** | **0.05** | ~2.8 hours | **~34 minutes** |
+|  1,000 | 10,000    | 0.40    | ~8 minutes  | ~2 minutes  |
+| 10,000 | 10,000    | 0.40    | ~76 minutes | ~20 minutes |
+| 10,000 | 10,000    | 0.15    | ~4 hours    | ~52 minutes |
+| 10,000 | 10,000    | none    | ~45 days    | ~10 days    |
+
+The first row is what a bare `hand_ev.py --deals 10000 --workers 10` costs now:
+132/231/266 eval sims at `epsilon 0.05`, measured at 0.205 s/deal. The rows
+below it are the earlier runs at 10,000 eval sims, kept because they are what
+the epsilon comparison above was measured on. Pinning the opening bid with
+`--assume order` is faster again -- 0.103 s/deal, ~17 minutes -- since an order
+from eldest ends the auction and the other three seats never bid.
 
 The worker column is measured at 900 deals, not extrapolated from the core
 count: 10 workers ran exact-at-400 at 0.95 s/deal against 4.35 s/deal serial,

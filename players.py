@@ -398,12 +398,23 @@ class PIMCPlayer:
     It never reads `turn.deal`.
 
     Args:
-        samples: layouts drawn per card-play decision.
-        bid_samples: layouts per bidding decision; defaults to `samples`. These
-            cost far more each -- see `pass_model` -- so turn this down first.
-        pass_model: PASS_GOD_MODE or PASS_ZERO; see the module docstring.
+        samples: layouts per card-play decision. Defaults to RESEARCHED_PLAY.
+        bid_samples: layouts per bidding decision. Defaults to RESEARCHED_BID,
+            not to `samples` -- a bid needs about twice the worlds a card does,
+            and each one costs far more; see `pass_model`.
+        discard_samples: layouts per discard decision. Defaults to
+            RESEARCHED_DISCARD, the hungriest of the three.
+        pass_model: one of PASS_MODELS -- "god", "zero", "floor" or "guard".
+            See the module docstring; they are not equally strong.
         tie_break: LOW or FIRST, for cards the search rates identically.
         rng: seed it for a reproducible player.
+        epsilon: indifference band for the stopping rule, or None for exact
+            averaging. None is the default and is bit-for-bit the unraced
+            player; see `_race`.
+        min_worlds: floor below which nothing is ever dropped.
+        prune_discards: strike the top trumps off the discard candidates. Off
+            by default, and known to be wrong about once in 100,000 positions
+            -- see notes/discard_dominance.md.
 
     `solves` and `nodes` accumulate what it has spent. `last_scores` holds the
     averaged value of every option from the most recent decision, so a front
