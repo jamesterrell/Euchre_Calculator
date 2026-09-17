@@ -114,12 +114,23 @@ class TestPickUp(unittest.TestCase):
             self.assertEqual(set(after.all_cards()), set(r.full_deck()))
             after.check()
 
-    def test_the_dealer_may_discard_the_up_card_itself(self):
-        """Legal, and sometimes right: take it and throw it straight back."""
+    def test_the_dealer_may_not_discard_the_up_card(self):
+        """
+        Ordered up, the up-card stays in hand. Enforced here rather than at
+        each call site: a caller that offered it as a sixth option would be
+        asking the solver about a position the game cannot reach, and the
+        solver has no way to notice it was handed one.
+        """
         d = a_deal()
-        after = d.pick_up(discard=d.up_card)
-        self.assertEqual(after.hands[d.dealer], d.hands[d.dealer])
-        self.assertIn(d.up_card, after.buried)
+        with self.assertRaises(ValueError):
+            d.pick_up(discard=d.up_card)
+
+    def test_the_dealer_keeps_the_up_card_whatever_it_pitches(self):
+        d = a_deal()
+        for card in d.hands[d.dealer]:
+            after = d.pick_up(discard=card)
+            self.assertIn(d.up_card, after.hands[d.dealer])
+            self.assertIn(card, after.buried)
 
     def test_other_hands_are_untouched(self):
         d = a_deal()

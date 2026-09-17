@@ -270,7 +270,8 @@ class TestContract(unittest.TestCase):
                 self.assertEqual(b.net_to_team0(contract.solve(), seat), value)
 
     def test_play_value_passes_alone_through(self):
-        d = a_deal(3).pick_up(discard=a_deal(3).up_card)
+        base = a_deal(3)
+        d = base.pick_up(discard=base.hands[base.dealer][0])
         for caller in range(4):
             hands = r.deal_to_engine(d.hands, d.up_card.suit)
             with self.subTest(caller=caller):
@@ -284,14 +285,14 @@ class TestOrderUpAlone(unittest.TestCase):
         """
         Why order_up short-circuits. If the caller's partner is the dealer, the
         dealer picks up into a hand that never plays, so which card it pitches
-        is both unobservable and worth nothing -- all six must agree, and the
-        function solves one of them rather than six.
+        is both unobservable and worth nothing -- all five must agree, and the
+        function solves one of them rather than five.
         """
         for seed in range(6):
             d = a_deal(seed, dealer=0)
             caller = 2                      # partner of seat 0, the dealer
             values = set()
-            for card in list(d.hands[0]) + [d.up_card]:
+            for card in d.hands[0]:
                 after = d.pick_up(discard=card)
                 values.add(b.play_value(after, d.up_card.suit, caller,
                                         alone=True))
@@ -308,7 +309,7 @@ class TestOrderUpAlone(unittest.TestCase):
         worst_for_dealer = max(
             b.play_value(d.pick_up(discard=c), d.up_card.suit, caller,
                          alone=True)
-            for c in list(d.hands[2]) + [d.up_card])
+            for c in d.hands[2])
         self.assertLessEqual(contract.solve(), worst_for_dealer)
         self.assertEqual(b.net_to_team0(contract.solve(), caller), value)
 

@@ -168,24 +168,29 @@ def order_up(deal: Deal, caller: int, alone: bool = False) -> Tuple[int, Contrac
     team -- which is the caller's opponent whenever the two are on opposite
     sides. Returns (net points to team 0, the resulting contract).
 
+    The dealer chooses among the **five cards it was dealt**. The up-card is not
+    a candidate: ordered up, it is in the dealer's hand to stay -- see
+    `game.Deal.pick_up`. That is one fewer God Mode solve per order, so round
+    one costs 20 solves rather than 24.
+
     One case collapses: if `caller` goes alone and the dealer is the partner
     sitting out, the dealer's whole hand leaves play, so every discard is worth
-    exactly the same and the choice is unobservable. Solving all six would be
-    six identical answers, so the up-card is pitched by convention and one
-    solve is done. `tests/test_loners.py` checks the six really do agree.
+    exactly the same and the choice is unobservable. Solving all five would be
+    five identical answers, so the first dealt card is pitched by convention and
+    one solve is done. `tests/test_loners.py` checks the five really do agree.
     """
     trump = deal.up_card.suit
     dealer = deal.dealer
     sitting = (caller + 2) % PLAYERS if alone else None
 
     if sitting == dealer:
-        after = deal.pick_up(discard=deal.up_card)
+        after = deal.pick_up(discard=deal.hands[dealer][0])
         value = net_to_team0(play_value(after, trump, caller, alone), caller)
         return value, Contract(trump, caller, ROUND_ONE, after,
-                               deal.up_card, alone)
+                               deal.hands[dealer][0], alone)
 
     options = []
-    for card in list(deal.hands[dealer]) + [deal.up_card]:
+    for card in deal.hands[dealer]:
         after = deal.pick_up(discard=card)
         value = net_to_team0(play_value(after, trump, caller, alone), caller)
         options.append((value,

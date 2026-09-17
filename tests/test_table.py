@@ -401,7 +401,10 @@ class TestPIMC(unittest.TestCase):
         self.assertIn(player.bid(bid_turn), bid_turn.options)
 
         trump = deal.up_card.suit
+        # The dealer holds six and may pitch only five: an ordered-up card
+        # stays in hand. table.py splits these the same way.
         six = tuple(deal.hands[3]) + (deal.up_card,)
+        pitchable = tuple(deal.hands[3])
         taken = game.Deal(
             hands=tuple(six if s == 3 else tuple(h)
                         for s, h in enumerate(deal.hands)),
@@ -412,8 +415,8 @@ class TestPIMC(unittest.TestCase):
                 seat=3, hand=six, dealer=3, up_card=deal.up_card,
                 up_state=ob.PICKED_UP, trump=trump, caller=0,
                 pending_discard=True).check(),
-            seat=3, caller=0, trump=trump, alone=False, options=six)
-        self.assertIn(player.discard(discard_turn), six)
+            seat=3, caller=0, trump=trump, alone=False, options=pitchable)
+        self.assertIn(player.discard(discard_turn), pitchable)
 
         settled = deal.pick_up(discard=deal.hands[3][0])
         contract = b.Contract(trump, 0, b.ROUND_ONE, settled,

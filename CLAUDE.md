@@ -759,8 +759,9 @@ not the destination -- replace the decision rule, keep the machinery.
 
 The tree is a chain, not an exponential: round one is four order-or-pass
 decisions and an order ends it, round two is four name-or-pass decisions. At
-most 36 God Mode solves per deal (24 in round one, since ordering up makes
-the dealer choose among six discards, plus 12 in round two), so about 10-25 ms.
+most 32 God Mode solves per deal (20 in round one, since ordering up makes
+the dealer choose among its five dealt cards, plus 12 in round two), so about
+10-25 ms.
 
 Everything is scored as **net points to team 0**, so calls by different seats
 can be compared on one scale. `net_to_team0` converts from
@@ -774,6 +775,14 @@ Three things that are easy to get wrong and are deliberate here:
   it up, the dealer is picking up for a contract they want to fail and pitches
   accordingly. `tests/test_bidding.py` pins a deal where that costs the caller a
   march -- +1 instead of +2.
+- **The up-card cannot be the discard.** Ordered up, it is in the dealer's hand
+  to stay, so the dealer chooses among the five cards it was dealt.
+  `game.Deal.pick_up` raises rather than leaving it to each call site, because
+  a six-way choice would be asking the solver about a position the game cannot
+  reach and the solver cannot tell it was handed one. Worth **-15.5% of the
+  bidding solves** (1126 to 951 per deal) and -5.1% wall clock, measured over
+  50 deals at 200 eval sims with epsilon 0.40 -- less than the solve count
+  suggests, because the band had already taken out most of the rest.
 - **Passing is not free.** Its value is whatever the rest of the auction
   produces, which may be worse than the call you declined.
 - **Ties resolve to passing.** Otherwise God Mode cheerfully orders up a hand
@@ -805,14 +814,15 @@ Three things worth knowing before touching it:
 - **It is not monotone for either team.** The loner is an extra option for
   *both* sides, so team 0's value moves down on the deals where team 1 is the
   one with the loner. Don't assert a direction.
-- **Cost:** ~72 solves per auction instead of 36, but lone solves are ~3x
+- **Cost:** ~64 solves per auction instead of 32, but lone solves are ~3x
   cheaper, so the wall clock goes up by roughly a third, not double.
 
 `order_up` short-circuits one case: if the caller goes alone and the **dealer is
 the partner sitting out**, the dealer picks up into a hand that never plays, so
-all six discards are worth exactly the same and the choice is unobservable. It
-solves one (pitching the up-card, by convention) rather than six. `test_loners.py`
-checks that the six really do agree rather than taking it on trust.
+all five discards are worth exactly the same and the choice is unobservable. It
+solves one (pitching the first dealt card, by convention) rather than five.
+`test_loners.py` checks that the five really do agree rather than taking it on
+trust.
 
 `first_bid_options(deal)` is the front-end shape of the question: `{"pass",
 "order", "order alone"}`, all on the first bidder's own team's scale, so the

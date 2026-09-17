@@ -256,8 +256,13 @@ def _settle_order(deal: Deal, caller: int, alone: bool, players) -> b.Contract:
     # frozen and validated, and a six-card hand fails its check by design, so
     # the intermediate is built directly rather than through pick_up -- which
     # is called below, once there is a card to give it.
-    options = tuple(deal.hands[dealer]) + (deal.up_card,)
-    taken = Deal(hands=tuple(options if s == dealer else tuple(h)
+    # The dealer *holds* six and may *discard* only five: an ordered-up card
+    # stays in hand, so the up-card is not a candidate. `game.Deal.pick_up`
+    # enforces that; the two are kept apart here because the observation has to
+    # show the six the dealer is really looking at.
+    held = tuple(deal.hands[dealer]) + (deal.up_card,)
+    options = tuple(deal.hands[dealer])
+    taken = Deal(hands=tuple(held if s == dealer else tuple(h)
                              for s, h in enumerate(deal.hands)),
                  up_card=deal.up_card, buried=deal.buried, dealer=dealer,
                  picked_up=True)
@@ -266,7 +271,7 @@ def _settle_order(deal: Deal, caller: int, alone: bool, players) -> b.Contract:
         deal=taken,
         before=deal,
         observation=obs.Observation(
-            seat=dealer, hand=options, dealer=dealer, up_card=deal.up_card,
+            seat=dealer, hand=held, dealer=dealer, up_card=deal.up_card,
             up_state=obs.PICKED_UP, trump=trump, caller=caller, alone=alone,
             pending_discard=True).check(),
         seat=dealer, caller=caller, trump=trump, alone=alone, options=options)
@@ -276,7 +281,7 @@ def _settle_order(deal: Deal, caller: int, alone: bool, players) -> b.Contract:
         # is worth the same and the choice is unobservable. bidding.order_up
         # short-circuits this for the same reason; here it also spares a player
         # from being asked a question with no answer.
-        pitched = deal.up_card
+        pitched = options[0]
     else:
         pitched = players[dealer].discard(turn)
         if pitched not in options:
