@@ -144,7 +144,7 @@ tests/             the suite, see "Testing" below
   test_table.py      the referee and the players, incl. the God Mode pin
   test_hand_ev.py    the pinned-hand sweep: what stays pinned, deal order
   test_race.py       sequential elimination: the epsilon stopping rule
-  test_axioms.py     the stated axioms, and that pruning on them is exact
+  test_axioms.py     the proposed axioms; pins the one that turned out false
   test_fast_search.py randomised regression sweep for fast_search
 archive/           superseded code, see "Archived approaches" below
 ```
@@ -473,7 +473,19 @@ Three things to know before touching it:
   each option separately, so there dropping one does save the solves.
 - **`min_worlds` (24) is a floor, not a target.** Nothing is dropped on fewer,
   which is why `epsilon` does nothing at all at the sample counts the unit
-  tests and `pimc_sweep.py` run at.
+  tests and `pimc_sweep.py` run at. 24 is also about where it should be:
+  72.9% of decisions have settled by then (`notes/settle_counts.md`).
+
+**Why a band and not just a bigger budget.** Measured over 40,390 decisions
+(`notes/settle_counts.md`): a decision needs a mean of **156** worlds before its
+argmax stops moving, median 2, p75 32 -- but the tail cannot be quoted, because
+**decisions that never settle are exactly the ties.** Broken down by final
+margin, the share that never settled is 100% at a margin of 0, 29% below 0.05,
+1% between 0.05 and 0.15, and **0% above 0.15**. No decision with a real margin
+ever failed to settle. For a genuinely tied pair the running argmax flips
+forever, so the settle point is undefined rather than large, and every reported
+p99.9 is just whatever `N_max` was. You cannot buy that tail with budget; an
+indifference band is the only thing that addresses it.
 
 **What the band costs, measured.** 900 deals, paired -- every setting plays
 identical layouts, so deal luck cancels deal by deal. 10 workers.
