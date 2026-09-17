@@ -769,7 +769,7 @@ can be compared on one scale. `net_to_team0` converts from
 back for display. A sign error here hides on any deal where the teams agree, so
 it is tested directly.
 
-Three things that are easy to get wrong and are deliberate here:
+Four things that are easy to get wrong and are deliberate here:
 
 - **The dealer chooses the discard, not the caller.** When the opposition orders
   it up, the dealer is picking up for a contract they want to fail and pitches
