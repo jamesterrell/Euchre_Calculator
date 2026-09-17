@@ -35,10 +35,15 @@ from fast_search import definitive_winner
 HEARTS_MONSTER = r.parse_hand(
     "JH AH KH QH TH  AD KS QC JD TC  TD AS KC QS 9D  JS AC KD QD 9C  9H  JC TS 9S")
 
-# Seed 20 dealt by seat 2: seat 1 (team 1) orders up, so the dealer is picking
-# up for the opposition. Pitching JD would hand the caller a march; the dealer
+# Seed 8 dealt by seat 0: seat 1 (team 1) orders up, so the dealer is picking up
+# for the opposition. Pitching AC would hand the caller a march; the dealer
 # pitches AH instead and holds them to +1.
-HOSTILE_DISCARD_SEED, HOSTILE_DISCARD_DEALER = 20, 2
+#
+# The previous fixture (seed 20, dealer 2) turned on pitching the up-card
+# itself, which is no longer legal -- see `game.Deal.pick_up`. Once the up-card
+# stops being a candidate that deal has no hostile pitch left, so the fixture
+# had to move rather than be re-pinned.
+HOSTILE_DISCARD_SEED, HOSTILE_DISCARD_DEALER = 8, 0
 
 
 def a_deal(seed=0, dealer=0):
@@ -124,7 +129,7 @@ class TestOrderUp(unittest.TestCase):
                 everything = [
                     b.net_to_team0(
                         b.play_value(d.pick_up(card), d.up_card.suit, caller), caller)
-                    for card in list(d.hands[d.dealer]) + [d.up_card]
+                    for card in d.hands[d.dealer]
                 ]
                 want = (max(everything) if b.team_of(d.dealer) == 0
                         else min(everything))
@@ -151,7 +156,7 @@ class TestOrderUp(unittest.TestCase):
                        b.net_to_team0(
                            b.play_value(d.pick_up(card), d.up_card.suit, caller),
                            caller))
-            for card in list(d.hands[d.dealer]) + [d.up_card])
+            for card in d.hands[d.dealer])
 
         self.assertEqual(got, 1)
         self.assertEqual(best_if_caller_chose, 2)

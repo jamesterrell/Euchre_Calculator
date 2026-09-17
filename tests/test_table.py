@@ -401,7 +401,10 @@ class TestPIMC(unittest.TestCase):
         self.assertIn(player.bid(bid_turn), bid_turn.options)
 
         trump = deal.up_card.suit
+        # The dealer holds six and may pitch only five: an ordered-up card
+        # stays in hand. table.py splits these the same way.
         six = tuple(deal.hands[3]) + (deal.up_card,)
+        pitchable = tuple(deal.hands[3])
         taken = game.Deal(
             hands=tuple(six if s == 3 else tuple(h)
                         for s, h in enumerate(deal.hands)),
@@ -412,8 +415,8 @@ class TestPIMC(unittest.TestCase):
                 seat=3, hand=six, dealer=3, up_card=deal.up_card,
                 up_state=ob.PICKED_UP, trump=trump, caller=0,
                 pending_discard=True).check(),
-            seat=3, caller=0, trump=trump, alone=False, options=six)
-        self.assertIn(player.discard(discard_turn), six)
+            seat=3, caller=0, trump=trump, alone=False, options=pitchable)
+        self.assertIn(player.discard(discard_turn), pitchable)
 
         settled = deal.pick_up(discard=deal.hands[3][0])
         contract = b.Contract(trump, 0, b.ROUND_ONE, settled,
@@ -475,3 +478,68 @@ class TestPIMC(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPinnedOrder(unittest.TestCase):
+    """
+    `play_pinned_order`: a deal in which one seat orders up and no auction is
+    held. It exists so a seat's call can be priced without being contaminated
+    by how often an earlier seat calls first.
+
+    What matters is that skipping the auction skips *only* the auction. The
+    dealer must still choose its own discard -- an opposing dealer picks up for
+    a contract it wants to fail -- and the up-card must still be unavailable to
+    throw, which `game.Deal.pick_up` enforces.
+    """
+
+    def a_table(self, seed=0):
+        return pimc_table(seed)
+
+    def test_the_named_seat_gets_the_contract(self):
+        for caller in range(game.PLAYERS):
+            deal = a_deal(7, dealer=3)
+            result = t.play_pinned_order(deal, self.a_table(), caller)
+            self.assertFalse(result.passed_out)
+            self.assertEqual(result.contract.caller, caller)
+            self.assertEqual(result.contract.trump, deal.up_card.suit)
+            self.assertEqual(result.contract.bidding_round, b.ROUND_ONE)
+
+    def test_the_dealer_pitches_one_of_its_own_five(self):
+        deal = a_deal(8, dealer=1)
+        result = t.play_pinned_order(deal, self.a_table(), caller=0)
+        self.assertIn(result.contract.discard, deal.hands[deal.dealer])
+        self.assertNotEqual(result.contract.discard, deal.up_card,
+                            "the up-card cannot be discarded")
+        self.assertIn(deal.up_card, result.contract.deal.hands[deal.dealer])
+
+    def test_the_log_says_no_auction_was_held(self):
+        # A transcript of this must not read like a deal that was bid for.
+        deal = a_deal(9, dealer=2)
+        result = t.play_pinned_order(deal, self.a_table(), caller=1)
+        self.assertEqual(len(result.auction), 1)
+        self.assertIn("pinned", result.auction[0])
+
+    def test_all_five_tricks_are_played(self):
+        deal = a_deal(10, dealer=0)
+        result = t.play_pinned_order(deal, self.a_table(), caller=2)
+        self.assertEqual(len(result.winners), 5)
+        self.assertEqual(len(result.plays), 20)
+        self.assertIn(result.caller_score, (-2, 1, 2))
+
+    def test_alone_sits_the_partner_down(self):
+        deal = a_deal(11, dealer=0)
+        result = t.play_pinned_order(deal, self.a_table(), caller=1, alone=True)
+        self.assertTrue(result.contract.alone)
+        self.assertEqual(len(result.plays), 15)      # three seats, five tricks
+        self.assertIn(result.caller_score, (-2, 1, 4))
+
+    def test_it_rejects_a_deal_already_picked_up(self):
+        deal = a_deal(12, dealer=3)
+        after = deal.pick_up(discard=deal.hands[3][0])
+        with self.assertRaises(ValueError):
+            t.play_pinned_order(after, self.a_table(), caller=0)
+
+    def test_it_rejects_a_bad_seat(self):
+        deal = a_deal(13, dealer=3)
+        with self.assertRaises(ValueError):
+            t.play_pinned_order(deal, self.a_table(), caller=4)

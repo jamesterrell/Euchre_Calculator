@@ -29,7 +29,7 @@ Tests. The unit suite is stdlib `unittest`, so it needs nothing beyond numpy
 and numba:
 
 ```bash
-python -m unittest discover               # whole suite, ~240s including JIT warmup
+python -m unittest discover               # whole suite, 399 tests, ~110s
 python -m unittest tests.test_solver      # one module
 python -m unittest tests.test_solver.TestLeftBower -v
 python tests/test_solver.py               # or run a file directly
@@ -60,7 +60,28 @@ python pimc_example.py --pass-model zero  # ...with passing priced at nothing
 python pimc_sweep.py                      # 40 deals, PIMC sim vs God Mode
 python pimc_sweep.py 60 --head-to-head    # what does seeing actually buy?
 python pimc_sweep.py 100 --pass-model zero --bid-samples 16
+python pimc_sweep.py 60 --samples 20 --bid-samples 10   # the old counts
 ```
+
+**Every tool now defaults to the measured sample counts** -- 132 worlds per card
+decision, 231 per bid, 266 per discard, from `notes/settle_counts.md`. They live
+in `players.py` as `RESEARCHED_PLAY` / `RESEARCHED_BID` / `RESEARCHED_DISCARD`,
+are the defaults on `PIMCPlayer` itself, and are what `pimc_sweep.py`,
+`pimc_example.py` and `hand_ev.py` run at unless a flag says otherwise. Pass
+`--samples` / `--bid-samples` / `--discard-samples` to override one kind.
+
+The eyeballed counts the scripts used to carry are gone: 20 play / 10 bid for
+the sweep, 24/16 for the example, and `samples=20` on `PIMCPlayer`. Each kind
+now defaults to its own measured number rather than one value carried across all
+three, because bidding and discarding need roughly twice what a card does.
+
+> **The measurement tables below predate that change.** Everything in "What
+> honest players actually do" and the pass-model comparison was taken at
+> **20 play / 10 bid samples**, which is no longer what a bare `pimc_sweep.py`
+> runs. To reproduce them, say so explicitly:
+> `python pimc_sweep.py 60 --samples 20 --bid-samples 10 --discard-samples 10`.
+> They have not been re-measured at the new defaults, and the sample count is
+> known to move a PIMC player's bidding, so do not assume they carry over.
 
 And the EV of one pinned hand, which is the question the calculator exists to
 answer -- same PIMC sim table, but every sampled layout is played out rather
@@ -71,6 +92,7 @@ python hand_ev.py "JS AS 9H 9D TC" --up 9S --seat 0 --dealer 3
 python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 2000 --player-eval-sims 50
 python hand_ev.py "JS AS 9H 9D TC" --up 9S --both --deals 500
 python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 5000 --workers 8
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --assume order    # if I order it
 ```
 
 `pimc_example.py` is the one to read first. It plays a single pinned deal and
@@ -128,6 +150,7 @@ n_game_sim.py      generate_hands() -> (n_games, 4, 5, 2) batch of dealt hands
 fast_search.py     the solver: depth-first alpha-beta over the game tree
 reference_solver.py independent pure-Python solver, used only by the tests
 observation.py     one seat's information set, and sampling worlds from it
+                   (`iter_worlds` is the lazy form -- see "stopping early")
 table.py           the referee: play a deal out with four player objects
 players.py         decision rules: GodModePlayer, PIMCPlayer, RandomPlayer
 pimc_sweep.py      measures a PIMC sim table against the God Mode one
@@ -142,6 +165,8 @@ tests/             the suite, see "Testing" below
   test_observation.py what a seat knows, and that sampled worlds respect it
   test_table.py      the referee and the players, incl. the God Mode pin
   test_hand_ev.py    the pinned-hand sweep: what stays pinned, deal order
+  test_race.py       sequential elimination: the epsilon stopping rule
+  test_axioms.py     the proposed axioms; pins the one that turned out false
   test_fast_search.py randomised regression sweep for fast_search
 archive/           superseded code, see "Archived approaches" below
 ```
@@ -282,7 +307,7 @@ every reported number is on the asking seat's own team's scale -- derived from
 the caller's score rather than compared against the conversion that produced it,
 since a sign error is invisible on any deal where the two teams agree.
 
-It is **~42 s of the suite's runtime**, nearly all of it in the two deal-order
+It is **~29 s of the suite's runtime**, nearly all of it in the two deal-order
 tests, which spawn a pool and pay the JIT warmup once per worker. Worth it: the
 pool hands results back as they finish, and `run` sorting them back into deal
 order is load-bearing for anything that reads `records[i]` as deal `i`. Removing
@@ -424,6 +449,120 @@ only ever chooses between moves of equal expected value, so it cannot cost
 anything the model can see, but pass `tie_break="first"` when measuring the sim
 rather than trying to win with it.
 
+### Stopping early: the `epsilon` band
+
+**A PIMC decision does not need its averages, only its argmax, and the argmax
+settles long before the budget does.** Measured over 12 deals at 200 worlds a
+decision: card-play decisions settled after a median of **1** world and 69%
+within 20; bidding, which is the expensive half, took a median of 68. The rest
+of the budget was confirming a decision already made.
+
+`players._race` is the stopping rule. It drops an option on either of two
+grounds: the gap to the leader is bigger than the noise on the gap, or the gap
+is smaller than `epsilon` and so cannot matter. The test is on **paired**
+differences -- every option is scored in the same sampled world, so `v_i - v_j`
+is far quieter than either mean and is usually exactly 0.
+
+**The band is what makes the cost flat, and this is the whole point.** Proving
+two noisy options are within `epsilon` costs about `(z * sd / epsilon)^2`
+worlds, so a decision is capped there no matter how large the budget is.
+Measured on `hand_ev.py`'s pinned hand, 6 deals a point:
+
+| eval sims | epsilon 0.15 | epsilon 0.40 | epsilon 1.00 |
+| --------- | ------------ | ------------ | ------------ |
+|       200 | 1.049 s/deal | 0.446 s/deal | 0.320 s/deal |
+|       800 | 1.393        | 0.464        | 0.330        |
+|     3,200 | 1.435        | 0.461        | 0.337        |
+|    12,800 | 1.429        | 0.457        | 0.331        |
+
+Flat from 800 on: **10,000 eval sims cost what 800 cost.** Before this, the
+same run was linear in the sample count -- 0.39 s per deal per 10 sims, which
+put 10,000 deals at 10,000 sims at about 45 days.
+
+Three things to know before touching it:
+
+- **`epsilon=None` is off, and off is exact.** The same worlds, the same rng,
+  the same answers, bit for bit -- verified by digesting a whole `hand_ev` run
+  under both pass models before and after. That is the default for
+  `PIMCPlayer`, so `pimc_sweep.py`, `pimc_example.py` and every existing
+  measurement in this file are unaffected. Only `hand_ev.py` defaults it on.
+  The exactness is load-bearing rather than polite: a player that drew fewer
+  worlds would hand every later decision in the deal different layouts, so an
+  unraced sweep would stop reproducing.
+- **It never narrows a card-play solve.** One `position_moves` call prices
+  every legal card at once, so dropping a card saves nothing within a world;
+  the saving is in stopping the world loop. Bidding and discarding evaluate
+  each option separately, so there dropping one does save the solves.
+- **`min_worlds` (24) is a floor, not a target.** Nothing is dropped on fewer,
+  which is why `epsilon` does nothing at all at the sample counts the unit
+  tests and `pimc_sweep.py` run at. 24 is also about where it should be:
+  72.9% of decisions have settled by then (`notes/settle_counts.md`).
+
+**Why a band and not just a bigger budget.** Measured over 40,390 decisions
+(`notes/settle_counts.md`): a decision needs a mean of **156** worlds before its
+argmax stops moving, median 2, p75 32 -- but the tail cannot be quoted, because
+**decisions that never settle are exactly the ties.** Broken down by final
+margin, the share that never settled is 100% at a margin of 0, 29% below 0.05,
+1% between 0.05 and 0.15, and **0% above 0.15**. No decision with a real margin
+ever failed to settle. For a genuinely tied pair the running argmax flips
+forever, so the settle point is undefined rather than large, and every reported
+p99.9 is just whatever `N_max` was. You cannot buy that tail with budget; an
+indifference band is the only thing that addresses it.
+
+**What the band costs, measured.** 900 deals, paired -- every setting plays
+identical layouts, so deal luck cancels deal by deal. 10 workers.
+
+| setting        | s/deal | vs exact, paired  | deals identical |
+| -------------- | ------ | ----------------- | --------------- |
+| exact @400     | 0.95   | --                | --              |
+| epsilon 0.15   | 0.32   | **+0.073 +/- 0.077** | 725/900      |
+| epsilon 0.40   | 0.137  | **+0.024 +/- 0.085** | 542/900      |
+
+So at this sample count the band moves the answer by less than 0.1 points and
+the drift is not clearly distinguishable from zero at 900 deals. It is *not*
+established that the drift is zero, only that it is small next to a euchre.
+
+**The catch, and it is the important part.** At `epsilon=0.40`, raising the
+sample count from 800 to 12,800 changed **nothing at all** -- 900 of 900 deals
+identical, a paired difference of exactly +0.000. That is the flat cost curve
+seen from the other side: a band that wide freezes every decision by ~800
+worlds, so the extra samples are genuinely inert rather than merely cheap.
+
+**The band changes what the players do, not just how long they take.** The
+same question -- `JS AS 9H 9D TC`, `9S` up, 10,000 deals at 10,000 eval sims,
+pass model `"zero"`, loners on, identical layouts both times:
+
+| epsilon | wall (10 workers) | EV to your team | you called | euchred | passed out |
+| ------- | ----------------- | --------------- | ---------- | ------- | ---------- |
+| 0.40    | **17.3 min**      | -0.451 +/- 0.030 | 67.3%     | 51.5%   | 0.2%       |
+| 0.15    | **48.4 min**      | -0.518 +/- 0.030 | 77.4%     | 53.5%   | 0.1%       |
+
+The EVs are about 0.07 apart, which is small and is roughly the drift measured
+against exact at 400 sims. **The calling rates are 10 points apart, which is
+not small.** A wider band resolves more near-ties by giving up on them, and
+"order it up" versus "pass" is exactly the kind of near-tie that gets given up
+on, so the two settings are recognisably different bidders that happen to score
+within a tenth of a point of each other. Do not read the close EVs as the band
+being harmless; read them as this hand being worth about the same either way.
+
+Note also that the drift has no consistent sign: at 400 eval sims epsilon 0.15
+scored *above* epsilon 0.40 and both scored above exact, and at 10,000 the
+order reverses. That is what an error of the same size as the noise looks like.
+
+Which means **`--player-eval-sims 10000 --epsilon 0.4` is not a 10,000-sample
+run.** It is an ~800-sample run that cannot be told apart from one, at that
+band. If the question is specifically whether decisions keep moving above a few
+thousand samples -- and this file's own note says that is unmeasured and should
+not be assumed either way -- then the band has to come down far enough to leave
+room for the movement, and the cost comes back with it. `epsilon` is the dial
+between those two, and the honest way to use it is to re-measure at two bands
+and see whether the answer moved.
+
+`tests/test_race.py` covers both halves: that off is exactly off, and that on
+has the shape it claims -- a dominated option loses, a dominant one is never
+dropped, options that always agree tie out instead of running the budget, and
+a wider band stops sooner.
+
 ### What honest players actually do
 
 Measured by `pimc_sweep.py` over 60 deals at 20 play samples and 10 bid samples
@@ -473,8 +612,75 @@ not free" turning up as a measurement trap rather than a bidding one -- do not
 read a per-call average as a strength number. What `"zero"` reliably is, is
 about 4x faster.
 
-**Nothing ever passes out, under either model** -- 0 of 60 in the main sweep and
-0 of 40 in all five diagnostic configurations. That was the one prediction in
+**Two more pass models were tried, and both are worse. The attempt is worth
+recording because of what it rules out.**
+
+Both target the same flaw: `"god"` prices a pass at whatever the rest of the
+auction does, and inside a sampled world the other seats can see the hand this
+player is hiding, so the pass branch reads "an opponent calls this and makes
+it" far more often than a real table would. A seat with a bad hand then makes a
+desperate call because declining looked worse.
+
+- `"floor"` clamps a pass at zero **per sampled world**: `sum(max(g_w, 0))`.
+- `"guard"` is `"god"` plus one **decision-level** override: if every call is
+  negative once all the worlds are averaged, pass; otherwise price the pass
+  exactly as `"god"` does.
+
+They are not the same rule -- by Jensen the per-world clamp is systematically
+kinder to passing -- but they behave almost identically, which is the first
+thing the measurement settled.
+
+Profile over 60 deals, 20 play / 10 bid samples:
+
+|                           | `zero` | `god` | `floor` | `guard` |
+| ------------------------- | ------ | ----- | ------- | ------- |
+| euchred                   | 11.7%  | 36.7% | 15.3%   | **21.7%** |
+| ordered up in round one   | 58     | 54    | 33      | 37      |
+| named a suit in round two |  2     |  6    | 26      | 23      |
+| called alone              |  5.0%  |  8.3% | 18.3%   | 18.3%   |
+| passed out                |  0     |  0    | **1**   |  0      |
+| mean tricks to the caller | 3.57   | 2.85  | 3.54    | 3.40    |
+
+Both produce a far more realistic-looking auction than `"god"` -- round-one
+orders roughly halve and round-two calls rise five-fold, because a seat that is
+not frightened of declining turns the up-card down and names a better suit.
+`"floor"` produced **the first pass-out ever seen in a `pimc_sweep`**.
+
+**And both are significantly weaker players.** Head to head against God Mode,
+teams swapped on every deal, **250 deals each**:
+
+| pass model | margin per deal |
+| ---------- | --------------- |
+| `zero`     | **-1.064 +/- 0.152** |
+| `god`      | **-1.112 +/- 0.151** |
+| `guard`    | -1.388 +/- 0.167 |
+| `floor`    | -1.468 +/- 0.164 |
+
+`zero` and `god` are indistinguishable (0.048 apart), which reproduces the
+50-deal finding above at five times the sample. Both new models lose to both
+old ones by about 0.3 points a deal, z ~ 2.4-2.8. `guard` and `floor` are
+indistinguishable from each other (0.080 apart, z ~ 0.7), so **the per-world
+versus decision-level distinction accounts for almost none of the damage** --
+worth knowing, because it was the obvious hypothesis and it is wrong.
+
+**What actually costs the points.** `"guard"` differs from `"god"` in exactly
+one situation: when every call is negative and the least-bad call is still
+better than `"god"`'s estimate of passing, `"god"` takes that call and
+`"guard"` passes instead. That single change is the whole -0.276. So taking the
+**least-bad losing call beats passing**, and the intuition that a bad hand
+should be thrown in is simply wrong here. It is `bidding.py`'s "passing is not
+free" again, now measured on the PIMC side: if you pass, somebody else calls
+and scores, and `"god"`'s pessimism about that is closer to right than a floor
+at zero is.
+
+The euchre rate is not a strength metric. Across four models it is
+**uncorrelated** with head-to-head margin -- `zero` has the best euchre rate
+and the best margin, but `floor` has the second-best euchre rate and the worst
+margin. Judge a bidder head to head or not at all.
+
+**Nothing ever passes out, under either of the two original models** -- 0 of 60
+in the main sweep and 0 of 40 in all five diagnostic configurations. (`"floor"`,
+added later and covered above, does pass hands in.) That was the one prediction in
 this file that did not come true, and the pass model does not explain it:
 `"zero"` prices a pass at exactly nothing and still never throws a hand in. The
 reason is the number of chances. Eight seats bid in turn, and each round-two
@@ -483,6 +689,16 @@ almost always finds something that looks positive, especially since the sim's
 estimates are optimistic to begin with. Getting a table to pass a deal out
 needs a model of what the *other* seats will do with it, which is exactly what
 neither pass model has. That is the next thing worth building.
+
+**Amended: it passes out about 0.2% of the time.** The sweeps above were too
+small to see it. A 10,000-deal `hand_ev.py` run on `JS AS 9H 9D TC` with `9S`
+up (pass model `"zero"`, loners on, epsilon 0.40) passed out **21 of 10,000**
+deals -- at which rate 60 deals predicts 0.1 pass-outs and 40 predicts 0.08, so
+seeing none of them was never evidence of never. The shape of the claim
+survives and the absolute version of it does not: passing out is rare rather
+than impossible, and it took a sweep three orders of magnitude bigger than the
+ones above to tell the difference. Worth re-reading as a caution about every
+other 0-of-60 in this file.
 
 **Loners move the way real tables move** -- 1.7% to 10%. Some of that is honest
 optimism about hands that might run. Some is mechanical: averaging over sampled
@@ -502,6 +718,60 @@ than solved, so the reported EV includes the deals where the hand gets passed
 out, ordered up by somebody else, or over-called -- which is why the report
 breaks the mean down by who ended up with the contract.
 
+**Each decision kind defaults to the number of worlds it actually needs**:
+`PLAYER_EVAL_SIMS = 132` for a card, `BID_EVAL_SIMS = 231` for a bid,
+`DISCARD_EVAL_SIMS = 266` for a discard -- the measured mean settle points from
+`notes/settle_counts.md`. At those budgets **99.4-99.8% of decisions with a real
+margin (>0.15) keep the leader they finish with**; the ones that drift are
+near-ties, where either answer is worth the same. `--player-eval-sims` still
+carries to all three when given, so `--player-eval-sims 10000` means what it
+always did; `--bid-eval-sims` and `--discard-eval-sims` override individually.
+`PIMCPlayer.discard_samples` defaults to `bid_samples`, so `pimc_sweep.py` and
+every measurement above are unchanged.
+
+The old default was 10 worlds a card decision -- below `min_worlds`, so it could
+never race at all. The new ones cost 1.052 s/deal at `epsilon 0.05` and 0.481 at
+`epsilon 0.40`, against 0.39 for the old 10, so 2.7x for 13x the worlds.
+
+**`--assume`: the value of one opening bid, not of the whole auction.** By
+default the asking seat bids for itself, so the mean mixes the deals it called
+with the ones it passed and somebody else called. `--assume order` (also
+`order-alone`, `pass`) pins the opening bid and conditions on it.
+
+`players.ForcedOpeningBid` does the pinning, and **only the opening bid**: the
+seat still discards and plays for itself, the other seats bid normally, and the
+dealer still chooses its own discard through `table._settle_order`, so an
+opposing dealer still pitches to hurt the contract.
+
+**The auction still runs, and may not reach the seat.** From eldest it always
+does. From a later seat an earlier player can call first and the option never
+arrives -- 13 of 20 deals from seat 2 with dealer 3, against 10000 of 10000
+from seat 0. That is data, not an error, so the report gives three numbers with
+no headline among them:
+
+```
+    deals you ordered              27 of 40 (67.5%)
+    EV given you ordered           -0.667 +/- 0.573 points per deal
+    EV over all deals              -0.200 +/- 0.507 points per deal
+```
+
+Those two means answer different questions and can point opposite ways, as they
+do here: ordering is worth -0.667 when seat 2 gets to, but the hand returns only
+-0.200 overall, because on the third of deals where somebody preempts it that
+team does better than it would have by ordering. How often the option arrives is
+as much a part of what a hand is worth as what the call pays.
+
+`--no-let-auction-play` skips the auction and prices the call every deal, via
+`table.play_pinned_order`. It is the only way to compare seats on equal footing,
+since a late seat's walked number is contaminated by how often it is preempted.
+It requires `--assume order` or `order-alone` and is rejected otherwise.
+
+Two checks hold it together: from eldest the walked and pinned paths must
+produce **identical records**, since `ForcedOpeningBid` returns without calling
+the inner player and so no seat consumes rng before the dealer's discard; and
+`Record.forced` carries per deal whether the pin fired, which is what the rate
+is counted from.
+
 **Two nested sim counts, and they do different jobs.** `--deals` is the outer
 loop, the total hand sims, and it is the only one the error bar is on: outcomes
 run -4..+4 with a standard deviation near 2, so the 95% interval is about
@@ -509,13 +779,39 @@ run -4..+4 with a standard deviation near 2, so the 95% interval is about
 decision; it is never averaged into the reported mean, so it moves the mean
 itself rather than shrinking its interval. How far it has to go before PIMC
 decisions settle is **unmeasured** -- do not assume flatness in either
-direction.
+direction. What *is* now measured is that raising it is close to free: with
+`--epsilon` set, the cost stops growing with it above ~800.
 
-Cost is `deals x player_eval_sims` and nothing else. Measured on
-`JS AS 9H 9D TC` with `9S` up, pass model `"zero"`, loners on: 0.39 s per deal
-at 10 eval sims, so ~39 ms per sim, linear in both axes. That hand is the
-expensive case, since it gets ordered up nearly every deal and so plays all
-five tricks. `--workers` spreads deals over processes at a measured ~3x on a
+Cost **was** `deals x player_eval_sims` and nothing else -- 0.39 s per deal at
+10 eval sims on `JS AS 9H 9D TC` with `9S` up, pass model `"zero"`, loners on,
+linear in both axes, which put 10,000 deals at 10,000 eval sims at about **45
+days**. `--epsilon` breaks that second axis; see "Stopping early" above. With
+the band on, cost is flat in the sample count above ~800 worlds a decision, so
+the sweep is priced by `deals` and `epsilon` alone:
+
+| deals  | eval sims | epsilon | serial      | 10 workers  |
+| ------ | --------- | ------- | ----------- | ----------- |
+| 10,000 | **default** | **0.05** | ~2.8 hours | **~34 minutes** |
+|  1,000 | 10,000    | 0.40    | ~8 minutes  | ~2 minutes  |
+| 10,000 | 10,000    | 0.40    | ~76 minutes | ~20 minutes |
+| 10,000 | 10,000    | 0.15    | ~4 hours    | ~52 minutes |
+| 10,000 | 10,000    | none    | ~45 days    | ~10 days    |
+
+The first row is what a bare `hand_ev.py --deals 10000 --workers 10` costs now:
+132/231/266 eval sims at `epsilon 0.05`, measured at 0.205 s/deal. The rows
+below it are the earlier runs at 10,000 eval sims, kept because they are what
+the epsilon comparison above was measured on. Pinning the opening bid with
+`--assume order` is faster again -- 0.103 s/deal, ~17 minutes -- since an order
+from eldest ends the auction and the other three seats never bid.
+
+The worker column is measured at 900 deals, not extrapolated from the core
+count: 10 workers ran exact-at-400 at 0.95 s/deal against 4.35 s/deal serial,
+so **4.6x on 12 threads**, better than the ~3x noted elsewhere in this file but
+still nothing like 10x.
+
+`--epsilon none` restores the exact averaging and the old linear cost. That
+hand is the expensive case, since it gets ordered up nearly every deal and so
+plays all five tricks. `--workers` spreads deals over processes at a measured ~3x on a
 12-thread machine, not the 10x the core count suggests, and each worker pays the
 ~20 s JIT warmup once. **The answer does not depend on the worker count** --
 every deal seeds itself from its own index, so serial and parallel runs agree
@@ -627,8 +923,9 @@ not the destination -- replace the decision rule, keep the machinery.
 
 The tree is a chain, not an exponential: round one is four order-or-pass
 decisions and an order ends it, round two is four name-or-pass decisions. At
-most 36 God Mode solves per deal (24 in round one, since ordering up makes
-the dealer choose among six discards, plus 12 in round two), so about 10-25 ms.
+most 32 God Mode solves per deal (20 in round one, since ordering up makes
+the dealer choose among its five dealt cards, plus 12 in round two), so about
+10-25 ms.
 
 Everything is scored as **net points to team 0**, so calls by different seats
 can be compared on one scale. `net_to_team0` converts from
@@ -636,12 +933,38 @@ can be compared on one scale. `net_to_team0` converts from
 back for display. A sign error here hides on any deal where the teams agree, so
 it is tested directly.
 
-Three things that are easy to get wrong and are deliberate here:
+Five things that are easy to get wrong and are deliberate here:
 
 - **The dealer chooses the discard, not the caller.** When the opposition orders
   it up, the dealer is picking up for a contract they want to fail and pitches
   accordingly. `tests/test_bidding.py` pins a deal where that costs the caller a
   march -- +1 instead of +2.
+- **The top-trump prune is a heuristic, and a known-wrong one.** It was
+  proposed as "Axiom 1": some optimal discard is never the right bower, left
+  bower or ace of trump, so those three could be struck off for free. It
+  survived 15,515 decisive God Mode positions over 10,000 deals and was nearly
+  adopted; extending the same sweep to 100,000 deals **falsified it**. Witness,
+  pinned in `tests/test_axioms.py`: seed 94137 dealt by seat 1, hearts up, the
+  dealer holding `TD KD JH 9D AH` -- pitching the **ace of trump** is the only
+  discard that makes a march, because the ace is redundant behind the right
+  bower and the third diamond is worth more as length. Rate: 2 divergent
+  positions in 195,964 four-handed, 1 in 146,973 alone, all the same deal.
+  It is **off everywhere by default** (`prune=` on `order_up` / `solve_bidding`
+  / `rest_of_auction` / `best_discard`, `prune_discards=` on `PIMCPlayer`,
+  `--prune-top-trumps` on `hand_ev.py`) and it buys only **1.09x**, so turning
+  it on trades a march on one deal in a hundred thousand for 9% of the time.
+  Probably not worth it; see `notes/discard_dominance.md`, which also records
+  why the sweep was the wrong instrument -- uniform dealing cannot reach the
+  blocking positions where the claim breaks, which was written down *before*
+  the counterexample appeared and then confirmed by its shape.
+- **The up-card cannot be the discard.** Ordered up, it is in the dealer's hand
+  to stay, so the dealer chooses among the five cards it was dealt.
+  `game.Deal.pick_up` raises rather than leaving it to each call site, because
+  a six-way choice would be asking the solver about a position the game cannot
+  reach and the solver cannot tell it was handed one. Worth **-15.5% of the
+  bidding solves** (1126 to 951 per deal) and -5.1% wall clock, measured over
+  50 deals at 200 eval sims with epsilon 0.40 -- less than the solve count
+  suggests, because the band had already taken out most of the rest.
 - **Passing is not free.** Its value is whatever the rest of the auction
   produces, which may be worse than the call you declined.
 - **Ties resolve to passing.** Otherwise God Mode cheerfully orders up a hand
@@ -673,14 +996,15 @@ Three things worth knowing before touching it:
 - **It is not monotone for either team.** The loner is an extra option for
   *both* sides, so team 0's value moves down on the deals where team 1 is the
   one with the loner. Don't assert a direction.
-- **Cost:** ~72 solves per auction instead of 36, but lone solves are ~3x
+- **Cost:** ~64 solves per auction instead of 32, but lone solves are ~3x
   cheaper, so the wall clock goes up by roughly a third, not double.
 
 `order_up` short-circuits one case: if the caller goes alone and the **dealer is
 the partner sitting out**, the dealer picks up into a hand that never plays, so
-all six discards are worth exactly the same and the choice is unobservable. It
-solves one (pitching the up-card, by convention) rather than six. `test_loners.py`
-checks that the six really do agree rather than taking it on trust.
+all five discards are worth exactly the same and the choice is unobservable. It
+solves one (pitching the first dealt card, by convention) rather than five.
+`test_loners.py` checks that the five really do agree rather than taking it on
+trust.
 
 `first_bid_options(deal)` is the front-end shape of the question: `{"pass",
 "order", "order alone"}`, all on the first bidder's own team's scale, so the

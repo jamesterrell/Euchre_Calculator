@@ -256,8 +256,13 @@ def _settle_order(deal: Deal, caller: int, alone: bool, players) -> b.Contract:
     # frozen and validated, and a six-card hand fails its check by design, so
     # the intermediate is built directly rather than through pick_up -- which
     # is called below, once there is a card to give it.
-    options = tuple(deal.hands[dealer]) + (deal.up_card,)
-    taken = Deal(hands=tuple(options if s == dealer else tuple(h)
+    # The dealer *holds* six and may *discard* only five: an ordered-up card
+    # stays in hand, so the up-card is not a candidate. `game.Deal.pick_up`
+    # enforces that; the two are kept apart here because the observation has to
+    # show the six the dealer is really looking at.
+    held = tuple(deal.hands[dealer]) + (deal.up_card,)
+    options = tuple(deal.hands[dealer])
+    taken = Deal(hands=tuple(held if s == dealer else tuple(h)
                              for s, h in enumerate(deal.hands)),
                  up_card=deal.up_card, buried=deal.buried, dealer=dealer,
                  picked_up=True)
@@ -266,7 +271,7 @@ def _settle_order(deal: Deal, caller: int, alone: bool, players) -> b.Contract:
         deal=taken,
         before=deal,
         observation=obs.Observation(
-            seat=dealer, hand=options, dealer=dealer, up_card=deal.up_card,
+            seat=dealer, hand=held, dealer=dealer, up_card=deal.up_card,
             up_state=obs.PICKED_UP, trump=trump, caller=caller, alone=alone,
             pending_discard=True).check(),
         seat=dealer, caller=caller, trump=trump, alone=alone, options=options)
@@ -276,7 +281,7 @@ def _settle_order(deal: Deal, caller: int, alone: bool, players) -> b.Contract:
         # is worth the same and the choice is unobservable. bidding.order_up
         # short-circuits this for the same reason; here it also spares a player
         # from being asked a question with no answer.
-        pitched = deal.up_card
+        pitched = options[0]
     else:
         pitched = players[dealer].discard(turn)
         if pitched not in options:
@@ -393,6 +398,45 @@ def play_contract(contract: b.Contract, players) -> Tuple[int, tuple, tuple]:
         leader = won_by
 
     return caller_tricks, tuple(plays), tuple(winners)
+
+
+def play_pinned_order(deal: Deal, players, caller: int,
+                      alone: bool = False) -> Result:
+    """
+    Play a deal in which `caller` orders up, with no auction at all.
+
+    This is `play_deal` with `run_auction` taken out, and it exists to ask a
+    narrower question than a walked auction can: **what is ordering this hand
+    worth from this seat**, uncontaminated by how often an earlier seat calls
+    first. A late seat's walked number mixes the value of the call with the
+    frequency of getting to make it, which is fine for valuing a hand and
+    useless for comparing seats.
+
+    Nothing about the sim is bypassed except the auction. `_settle_order` still
+    routes the discard through `players[dealer].discard(...)`, so an opposing
+    dealer still picks up for a contract it wants to fail and pitches to hurt
+    it, and the five tricks are still played by the same player objects.
+    """
+    if len(players) != PLAYERS:
+        raise ValueError("a table seats %d players, got %d"
+                         % (PLAYERS, len(players)))
+    if not 0 <= caller < PLAYERS:
+        raise ValueError("caller must be 0-%d, got %r" % (PLAYERS - 1, caller))
+    if deal.picked_up:
+        raise ValueError("the up-card has already been picked up")
+
+    contract = _settle_order(deal, caller, alone, players)
+    caller_tricks, plays, winners = play_contract(contract, players)
+    caller_score = int(_final(caller_tricks, contract.alone))
+    # The log says the bid was pinned, so a transcript of this cannot be
+    # mistaken for a deal that actually went through an auction.
+    log = ("seat %d orders up %s%s (pinned -- no auction was held)"
+           % (caller, r.suit_name(contract.trump),
+              " alone" if alone else ""),)
+    return Result(deal=deal, contract=contract,
+                  value=b.net_to_team0(caller_score, contract.caller),
+                  caller_score=caller_score, caller_tricks=caller_tricks,
+                  plays=plays, winners=winners, auction=log)
 
 
 def play_deal(deal: Deal, players, stick_the_dealer: bool = False,

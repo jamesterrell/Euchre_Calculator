@@ -160,7 +160,42 @@ def _best(options, seat):
     return best
 
 
-def order_up(deal: Deal, caller: int, alone: bool = False) -> Tuple[int, Contract]:
+def top_trumps(trump: int):
+    """
+    Right bower, left bower, ace of trump -- the three cards Axiom 1 names.
+
+    See `notes/discard_dominance.md`. The axiom is that some optimal discard is
+    never one of these, so they can be struck off the candidate list. At most
+    three of the dealer's five dealt cards can be in here, so pruning always
+    leaves at least two candidates and can never empty the list.
+    """
+    return (r.Card(trump, r.JACK),
+            r.Card(r.same_colour(trump), r.JACK),
+            r.Card(trump, r.ACE))
+
+
+def discard_candidates(deal: Deal, prune: bool = False):
+    """
+    The cards the dealer may pitch, optionally pruned by Axiom 1.
+
+    `prune` is **off by default and should stay that way** for anything that
+    calls itself exact. `solve_bidding` is this project's exact baseline and
+    `tests/test_table.py` pins a table of God Mode players to it; pruning on an
+    unproven axiom makes that baseline heuristic, and silently so, because the
+    only thing it would be checked against is itself.
+    `tests/test_axioms.py` runs both paths over a sample and asserts they
+    agree, which is what keeps the axiom falsifiable rather than merely
+    believed.
+    """
+    cards = deal.hands[deal.dealer]
+    if not prune:
+        return list(cards)
+    tops = set(top_trumps(deal.up_card.suit))
+    return [c for c in cards if c not in tops] or list(cards)
+
+
+def order_up(deal: Deal, caller: int, alone: bool = False,
+             prune: bool = False) -> Tuple[int, Contract]:
     """
     `caller` orders up the turned suit; the dealer picks up and discards.
 
@@ -168,24 +203,29 @@ def order_up(deal: Deal, caller: int, alone: bool = False) -> Tuple[int, Contrac
     team -- which is the caller's opponent whenever the two are on opposite
     sides. Returns (net points to team 0, the resulting contract).
 
+    The dealer chooses among the **five cards it was dealt**. The up-card is not
+    a candidate: ordered up, it is in the dealer's hand to stay -- see
+    `game.Deal.pick_up`. That is one fewer God Mode solve per order, so round
+    one costs 20 solves rather than 24.
+
     One case collapses: if `caller` goes alone and the dealer is the partner
     sitting out, the dealer's whole hand leaves play, so every discard is worth
-    exactly the same and the choice is unobservable. Solving all six would be
-    six identical answers, so the up-card is pitched by convention and one
-    solve is done. `tests/test_loners.py` checks the six really do agree.
+    exactly the same and the choice is unobservable. Solving all five would be
+    five identical answers, so the first dealt card is pitched by convention and
+    one solve is done. `tests/test_loners.py` checks the five really do agree.
     """
     trump = deal.up_card.suit
     dealer = deal.dealer
     sitting = (caller + 2) % PLAYERS if alone else None
 
     if sitting == dealer:
-        after = deal.pick_up(discard=deal.up_card)
+        after = deal.pick_up(discard=deal.hands[dealer][0])
         value = net_to_team0(play_value(after, trump, caller, alone), caller)
         return value, Contract(trump, caller, ROUND_ONE, after,
-                               deal.up_card, alone)
+                               deal.hands[dealer][0], alone)
 
     options = []
-    for card in list(deal.hands[dealer]) + [deal.up_card]:
+    for card in discard_candidates(deal, prune):
         after = deal.pick_up(discard=card)
         value = net_to_team0(play_value(after, trump, caller, alone), caller)
         options.append((value,
@@ -237,13 +277,15 @@ def _round_two(deal, index, order, stick_the_dealer, allow_loners):
     return _best(options, seat)[1]
 
 
-def _round_one(deal, index, order, stick_the_dealer, allow_loners):
+def _round_one(deal, index, order, stick_the_dealer, allow_loners,
+               prune=False):
     if index == PLAYERS:
         return _round_two(deal, 0, order, stick_the_dealer, allow_loners)
 
     seat = order[index]
 
-    passed = _round_one(deal, index + 1, order, stick_the_dealer, allow_loners)
+    passed = _round_one(deal, index + 1, order, stick_the_dealer,
+                        allow_loners, prune)
     passed = Outcome(passed.contract, passed.value,
                      ("seat %d passes" % seat,) + passed.line)
 
@@ -253,7 +295,7 @@ def _round_one(deal, index, order, stick_the_dealer, allow_loners):
     # the partner in.
     options = [(passed.value, passed)]
     for alone in (False, True) if allow_loners else (False,):
-        value, contract = order_up(deal, seat, alone)
+        value, contract = order_up(deal, seat, alone, prune)
         options.append((value, Outcome(contract, value,
                                        ("seat %d orders up %s%s"
                                         % (seat, r.suit_name(deal.up_card.suit),
@@ -263,7 +305,8 @@ def _round_one(deal, index, order, stick_the_dealer, allow_loners):
 
 
 def solve_bidding(deal: Deal, stick_the_dealer: bool = False,
-                  allow_loners: bool = False) -> Outcome:
+                  allow_loners: bool = False,
+                  prune: bool = False) -> Outcome:
     """
     Solve the whole auction in God Mode.
 
@@ -283,7 +326,7 @@ def solve_bidding(deal: Deal, stick_the_dealer: bool = False,
     if deal.picked_up:
         raise ValueError("bidding starts before the up-card is picked up")
     return _round_one(deal, 0, deal.bidding_order(), stick_the_dealer,
-                      allow_loners)
+                      allow_loners, prune)
 
 
 def first_bid_choice(deal: Deal, allow_loners: bool = False) -> Tuple[int, int]:
@@ -342,7 +385,8 @@ def first_bid_options(deal: Deal, allow_loners: bool = True) -> dict:
 def rest_of_auction(deal: Deal, index: int, order=None,
                     stick_the_dealer: bool = False,
                     allow_loners: bool = False,
-                    bidding_round: int = ROUND_ONE) -> Outcome:
+                    bidding_round: int = ROUND_ONE,
+                    prune: bool = False) -> Outcome:
     """
     The auction from `index` onward, solved in God Mode.
 
@@ -359,17 +403,19 @@ def rest_of_auction(deal: Deal, index: int, order=None,
     """
     order = list(order if order is not None else deal.bidding_order())
     if bidding_round == ROUND_ONE:
-        return _round_one(deal, index, order, stick_the_dealer, allow_loners)
+        return _round_one(deal, index, order, stick_the_dealer, allow_loners,
+                          prune)
     if bidding_round == ROUND_TWO:
         return _round_two(deal, index, order, stick_the_dealer, allow_loners)
     raise ValueError("no such bidding round: %r" % (bidding_round,))
 
 
-def best_discard(deal: Deal, caller: int, alone: bool = False):
+def best_discard(deal: Deal, caller: int, alone: bool = False,
+                 prune: bool = False):
     """
     The card the dealer pitches on being ordered up, in God Mode.
 
     Chosen for the *dealer's* team, which is the point: ordered up by the
     opposition, it is taking a card into a contract it wants to fail.
     """
-    return order_up(deal, caller, alone)[1].discard
+    return order_up(deal, caller, alone, prune)[1].discard

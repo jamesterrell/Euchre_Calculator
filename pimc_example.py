@@ -281,12 +281,21 @@ def main(argv=None):
         description="Play one deal with PIMC sim players, out loud.")
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--dealer", type=int, default=DEALER)
-    parser.add_argument("--samples", type=int, default=24,
-                        help="layouts sampled per card-play decision")
-    parser.add_argument("--bid-samples", type=int, default=16,
-                        help="layouts sampled per bidding decision")
+    parser.add_argument("--samples", type=int,
+                        default=players.RESEARCHED_PLAY,
+                        help="layouts sampled per card-play decision "
+                             "(default %d, the measured mean settle point)"
+                             % players.RESEARCHED_PLAY)
+    parser.add_argument("--bid-samples", type=int,
+                        default=players.RESEARCHED_BID,
+                        help="layouts sampled per bidding decision (default "
+                             "%d)" % players.RESEARCHED_BID)
+    parser.add_argument("--discard-samples", type=int,
+                        default=players.RESEARCHED_DISCARD,
+                        help="layouts sampled per discard decision (default "
+                             "%d)" % players.RESEARCHED_DISCARD)
     parser.add_argument("--pass-model", default=players.PASS_GOD_MODE,
-                        choices=(players.PASS_GOD_MODE, players.PASS_ZERO),
+                        choices=players.PASS_MODELS,
                         help="how a seat prices passing. 'zero' makes the rule "
                              "exactly 'call only if calling is worth more than "
                              "nothing'")
@@ -308,6 +317,10 @@ def main(argv=None):
     print(deal.describe())
     print("\n  Play begins to the dealer's left, so seat %d leads trick one."
           % deal.first_bidder)
+    if not args.god_mode:
+        print("  %d play / %d bid / %d discard samples a decision%s"
+              % (args.samples, args.bid_samples, args.discard_samples,
+                 ""))
 
     log = Log(show_scores=not args.quiet, pass_model=args.pass_model)
     if args.god_mode:
@@ -315,6 +328,7 @@ def main(argv=None):
     else:
         inner = [players.PIMCPlayer(samples=args.samples,
                                     bid_samples=args.bid_samples,
+                                    discard_samples=args.discard_samples,
                                     pass_model=args.pass_model,
                                     rng=random.Random(1000 + seat))
                  for seat in range(PLAYERS)]

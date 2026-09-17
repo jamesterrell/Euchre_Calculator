@@ -58,9 +58,12 @@ LEFT_BOWER = 135
 Card = namedtuple("Card", "suit rank")
 
 
+_SAME_COLOUR = {SPADES: CLUBS, CLUBS: SPADES, HEARTS: DIAMONDS, DIAMONDS: HEARTS}
+
+
 def same_colour(suit):
     """The other suit of the same colour -- whose jack becomes the left bower."""
-    return {SPADES: CLUBS, CLUBS: SPADES, HEARTS: DIAMONDS, DIAMONDS: HEARTS}[suit]
+    return _SAME_COLOUR[suit]
 
 
 # American spelling, since the rest of the repo uses it in places.
@@ -82,8 +85,29 @@ def _plain_axes(trump):
     return off[0], off[1]
 
 
+# The rotation is a fixed map: 24 cards x 4 trump suits, 96 answers in all.
+# It was being recomputed from scratch for every card of every sampled world --
+# ~158k calls in a 20-deal sweep -- so the answers are memoised the first time
+# each is asked for. `_vec` hands back the shared tuple for internal callers
+# that only read it; `card_to_engine` keeps its list contract for everyone else.
+_ENGINE = {}
+
+
+def _vec(card, trump):
+    """The canonical vector for `card` under `trump`, as a shared tuple."""
+    key = (card[0], card[1], trump)
+    got = _ENGINE.get(key)
+    if got is None:
+        got = _ENGINE[key] = tuple(_card_to_engine(card, trump))
+    return got
+
+
 def card_to_engine(card, trump):
     """One natural card -> its canonical [x, y] vector under `trump`."""
+    return list(_vec(card, trump))
+
+
+def _card_to_engine(card, trump):
     suit, rank = card
     if suit not in SUITS:
         raise ValueError("no such suit: %r" % (suit,))
@@ -141,7 +165,7 @@ def _check_rank(rank):
 
 def to_engine(cards, trump):
     """A sequence of natural cards -> an (n, 2) int64 array of canonical vectors."""
-    return np.array([card_to_engine(c, trump) for c in cards], dtype=np.int64)
+    return np.array([_vec(c, trump) for c in cards], dtype=np.int64)
 
 
 def from_engine(vectors, trump):
@@ -167,7 +191,7 @@ def deal_to_engine(hands, trump):
     if len(set(flat)) != 20:
         raise ValueError("the deal contains duplicate cards")
 
-    return np.array([[card_to_engine(c, trump) for c in h] for h in hands],
+    return np.array([[_vec(c, trump) for c in h] for h in hands],
                     dtype=np.int64)
 
 

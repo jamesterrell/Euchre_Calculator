@@ -118,6 +118,7 @@ def interval(values):
 def pimc_table(args, seed):
     return [players.PIMCPlayer(samples=args.samples,
                                bid_samples=args.bid_samples,
+                               discard_samples=args.discard_samples,
                                pass_model=args.pass_model,
                                rng=random.Random(seed * 100 + s))
             for s in range(4)]
@@ -131,6 +132,7 @@ def mixed_table(args, seed, pimc_team):
     """The PIMC sim in one team's seats, God Mode in the other's."""
     return [players.PIMCPlayer(samples=args.samples,
                                bid_samples=args.bid_samples,
+                               discard_samples=args.discard_samples,
                                pass_model=args.pass_model,
                                rng=random.Random(seed * 100 + s))
             if s % 2 == pimc_team else players.GodModePlayer()
@@ -245,13 +247,23 @@ def main(argv=None):
         description="Play deals with players who cannot see each other's hands.")
     parser.add_argument("deals", nargs="?", type=int, default=DEALS,
                         help="how many deals to play (default %d)" % DEALS)
-    parser.add_argument("--samples", type=int, default=20,
-                        help="layouts sampled per card-play decision")
-    parser.add_argument("--bid-samples", type=int, default=10,
-                        help="layouts sampled per bidding decision; these cost "
-                             "far more each than card-play samples")
+    parser.add_argument("--samples", type=int,
+                        default=players.RESEARCHED_PLAY,
+                        help="layouts sampled per card-play decision "
+                             "(default %d, the measured mean settle point)"
+                             % players.RESEARCHED_PLAY)
+    parser.add_argument("--bid-samples", type=int,
+                        default=players.RESEARCHED_BID,
+                        help="layouts sampled per bidding decision (default "
+                             "%d); these cost far more each than card-play "
+                             "samples" % players.RESEARCHED_BID)
+    parser.add_argument("--discard-samples", type=int,
+                        default=players.RESEARCHED_DISCARD,
+                        help="layouts sampled per discard decision (default "
+                             "%d, the hungriest of the three)"
+                             % players.RESEARCHED_DISCARD)
     parser.add_argument("--pass-model", default=players.PASS_GOD_MODE,
-                        choices=(players.PASS_GOD_MODE, players.PASS_ZERO),
+                        choices=players.PASS_MODELS,
                         help="how a PIMC sim player prices passing")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-loners", action="store_true",
@@ -268,8 +280,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     print("Euchre: God Mode vs the PIMC sim")
-    print("  %d deals, %d play samples, %d bid samples, pass model %r%s"
-          % (args.deals, args.samples, args.bid_samples, args.pass_model,
+    print("  %d deals, %d play / %d bid / %d discard samples, pass model %r%s"
+          % (args.deals, args.samples, args.bid_samples, args.discard_samples,
+             args.pass_model,
              "" if not args.no_loners else ", loners off"))
     started = time.time()
 

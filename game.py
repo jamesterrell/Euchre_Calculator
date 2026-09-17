@@ -117,9 +117,20 @@ class Deal:
 
         This is the mechanical half of ordering up -- who decides to order, and
         which card the dealer throws, are decisions that belong to a player.
+
+        **The up-card itself cannot be the discard.** Once it is ordered up the
+        dealer has taken it into hand and is committed to it; the card that
+        goes face down has to be one of the five it was dealt. That is enforced
+        here rather than at each call site, because a caller that offered the
+        up-card as a sixth option would not be solving a position this game can
+        reach, and the solver has no way to notice it was handed one.
         """
         if self.picked_up:
             raise ValueError("the up-card has already been picked up")
+        if discard == self.up_card:
+            raise ValueError(
+                "the dealer cannot discard %s -- it is the up-card, and an "
+                "ordered-up card stays in hand" % card_name(discard))
 
         hand = list(self.hands[self.dealer]) + [self.up_card]
         if discard not in hand:
