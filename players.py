@@ -381,7 +381,8 @@ class PIMCPlayer:
                  pass_model: str = PASS_GOD_MODE, tie_break: str = LOW,
                  rng: Optional[random.Random] = None,
                  epsilon: Optional[float] = None,
-                 min_worlds: int = MIN_WORLDS):
+                 min_worlds: int = MIN_WORLDS,
+                 prune_discards: bool = False):
         if pass_model not in (PASS_GOD_MODE, PASS_ZERO):
             raise ValueError("no such pass model: %r" % (pass_model,))
         if epsilon is not None and epsilon < 0:
@@ -393,6 +394,11 @@ class PIMCPlayer:
         self.rng = rng or random.Random()
         self.epsilon = epsilon
         self.min_worlds = min_worlds
+        # Axiom 1: some optimal discard is never a top trump, so the right
+        # bower, left bower and ace of trump can be struck off. Evidence and
+        # caveats in notes/discard_dominance.md -- it is an axiom, not a
+        # theorem, which is why it is off unless asked for.
+        self.prune_discards = prune_discards
         self.solves = 0
         self.nodes = 0
         self.last_scores = {}
@@ -446,11 +452,12 @@ class PIMCPlayer:
             self.solves += 1
             rest = b.rest_of_auction(
                 deal, turn.index + 1, turn.order, turn.stick_the_dealer,
-                turn.allow_loners, turn.bidding_round)
+                turn.allow_loners, turn.bidding_round, self.prune_discards)
             value = rest.value
         elif option.action == t.ORDER:
             self.solves += 1
-            value = b.order_up(deal, turn.seat, option.alone)[0]
+            value = b.order_up(deal, turn.seat, option.alone,
+                               self.prune_discards)[0]
         else:
             self.solves += 1
             value = b.name_suit(deal, turn.seat, option.suit, option.alone)[0]
@@ -469,6 +476,11 @@ class PIMCPlayer:
         observation = turn.observation
         up_card = observation.up_card       # public; turn.deal is not touched
         stream = self._world_stream(observation)
+        candidates = turn.options
+        if self.prune_discards:
+            tops = set(b.top_trumps(turn.trump))
+            candidates = tuple(c for c in candidates
+                               if c not in tops) or turn.options
 
         def draw(active):
             # The world holds the dealer's six; the deal it came from held five.
@@ -488,11 +500,11 @@ class PIMCPlayer:
                 out[card] = to_seat(value, turn.caller, turn.seat)
             return out
 
-        sums, counts, alive = _race(turn.options, draw, self.bid_samples,
+        sums, counts, alive = _race(candidates, draw, self.bid_samples,
                                     self.epsilon, self.min_worlds)
-        self.last_scores = _means(turn.options, sums, counts)
-        self.last_samples = {c: counts[i] for i, c in enumerate(turn.options)}
-        live = tuple(turn.options[i] for i in alive)
+        self.last_scores = _means(candidates, sums, counts)
+        self.last_samples = {c: counts[i] for i, c in enumerate(candidates)}
+        live = tuple(candidates[i] for i in alive)
         return _pick(self.last_scores, live, tie_break=self.tie_break,
                      trump=turn.trump)
 

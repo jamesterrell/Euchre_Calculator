@@ -143,6 +143,7 @@ class Setup:
     allow_loners: bool
     stick: bool
     seed: int
+    prune_discards: bool = False
     # Last, and defaulted, so the field order the tests build a Setup with
     # keeps working. None means exact averaging -- see players._race.
     epsilon: Optional[float] = None
@@ -160,6 +161,7 @@ class Setup:
                                    bid_samples=self.bid_eval_sims,
                                    pass_model=self.pass_model,
                                    epsilon=self.epsilon,
+                                   prune_discards=self.prune_discards,
                                    rng=random.Random(self.seed * 7919 + i * 4 + s))
                 for s in range(game.PLAYERS)]
 
@@ -393,6 +395,11 @@ def parse_args(argv=None):
                              "the answer by less than it. 0 stops only on "
                              "proven gaps; 'none' disables early stopping and "
                              "restores exact averaging (default %g)" % EPSILON)
+    parser.add_argument("--prune-top-trumps", action="store_true",
+                        help="Axiom 1: never consider discarding the right "
+                             "bower, left bower or ace of trump. A search-space "
+                             "cut, not a model change -- but it rests on an "
+                             "axiom, not a proof. See notes/discard_dominance.md")
     parser.add_argument("--both", action="store_true",
                         help="also solve each layout in God Mode and report "
                              "the paired difference")
@@ -430,6 +437,7 @@ def setup_from(args) -> Setup:
                                 if args.bid_eval_sims is None
                                 else args.bid_eval_sims),
                  pass_model=args.pass_model, epsilon=args.epsilon,
+                 prune_discards=args.prune_top_trumps,
                  allow_loners=not args.no_loners, stick=args.stick,
                  seed=args.seed)
 

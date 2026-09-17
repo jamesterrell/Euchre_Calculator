@@ -144,6 +144,7 @@ tests/             the suite, see "Testing" below
   test_table.py      the referee and the players, incl. the God Mode pin
   test_hand_ev.py    the pinned-hand sweep: what stays pinned, deal order
   test_race.py       sequential elimination: the epsilon stopping rule
+  test_axioms.py     the stated axioms, and that pruning on them is exact
   test_fast_search.py randomised regression sweep for fast_search
 archive/           superseded code, see "Archived approaches" below
 ```
@@ -769,12 +770,29 @@ can be compared on one scale. `net_to_team0` converts from
 back for display. A sign error here hides on any deal where the teams agree, so
 it is tested directly.
 
-Four things that are easy to get wrong and are deliberate here:
+Five things that are easy to get wrong and are deliberate here:
 
 - **The dealer chooses the discard, not the caller.** When the opposition orders
   it up, the dealer is picking up for a contract they want to fail and pitches
   accordingly. `tests/test_bidding.py` pins a deal where that costs the caller a
   march -- +1 instead of +2.
+- **Axiom 1: the dealer never has to discard a top trump.** Some optimal
+  discard is never the right bower, left bower or ace of trump, so those three
+  can be struck off the candidate list. It is an **axiom, not a theorem** --
+  adopted because 15,515 decisive God Mode positions failed to break it, not
+  because anything proves it. `notes/discard_dominance.md` has the evidence and
+  is blunt about its weakness: uniform random dealing barely ever produces the
+  blocking and endplay shapes that could break it, and neither the targeted
+  adversarial search nor the exhaustive reduced-game proof has been done.
+  It is **off everywhere by default** (`prune=` on `order_up` / `solve_bidding`
+  / `rest_of_auction` / `best_discard`, `prune_discards=` on `PIMCPlayer`,
+  `--prune-top-trumps` on `hand_ev.py`), because switching it on silently would
+  make every God Mode number in this file conditional on an unproven claim.
+  `tests/test_axioms.py` runs the pruned and exact auctions over 250 deals and
+  asserts they agree, which is what keeps it falsifiable rather than believed.
+  Worth **1.09x** and 7.5% fewer bidding solves -- real, but not the lever it
+  looks like, since the dealer holds no top trump a third of the time and
+  usually only one when it does.
 - **The up-card cannot be the discard.** Ordered up, it is in the dealer's hand
   to stay, so the dealer chooses among the five cards it was dealt.
   `game.Deal.pick_up` raises rather than leaving it to each call site, because
