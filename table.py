@@ -400,6 +400,45 @@ def play_contract(contract: b.Contract, players) -> Tuple[int, tuple, tuple]:
     return caller_tricks, tuple(plays), tuple(winners)
 
 
+def play_pinned_order(deal: Deal, players, caller: int,
+                      alone: bool = False) -> Result:
+    """
+    Play a deal in which `caller` orders up, with no auction at all.
+
+    This is `play_deal` with `run_auction` taken out, and it exists to ask a
+    narrower question than a walked auction can: **what is ordering this hand
+    worth from this seat**, uncontaminated by how often an earlier seat calls
+    first. A late seat's walked number mixes the value of the call with the
+    frequency of getting to make it, which is fine for valuing a hand and
+    useless for comparing seats.
+
+    Nothing about the sim is bypassed except the auction. `_settle_order` still
+    routes the discard through `players[dealer].discard(...)`, so an opposing
+    dealer still picks up for a contract it wants to fail and pitches to hurt
+    it, and the five tricks are still played by the same player objects.
+    """
+    if len(players) != PLAYERS:
+        raise ValueError("a table seats %d players, got %d"
+                         % (PLAYERS, len(players)))
+    if not 0 <= caller < PLAYERS:
+        raise ValueError("caller must be 0-%d, got %r" % (PLAYERS - 1, caller))
+    if deal.picked_up:
+        raise ValueError("the up-card has already been picked up")
+
+    contract = _settle_order(deal, caller, alone, players)
+    caller_tricks, plays, winners = play_contract(contract, players)
+    caller_score = int(_final(caller_tricks, contract.alone))
+    # The log says the bid was pinned, so a transcript of this cannot be
+    # mistaken for a deal that actually went through an auction.
+    log = ("seat %d orders up %s%s (pinned -- no auction was held)"
+           % (caller, r.suit_name(contract.trump),
+              " alone" if alone else ""),)
+    return Result(deal=deal, contract=contract,
+                  value=b.net_to_team0(caller_score, contract.caller),
+                  caller_score=caller_score, caller_tricks=caller_tricks,
+                  plays=plays, winners=winners, auction=log)
+
+
 def play_deal(deal: Deal, players, stick_the_dealer: bool = False,
               allow_loners: bool = False) -> Result:
     """

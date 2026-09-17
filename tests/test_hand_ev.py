@@ -53,7 +53,8 @@ UP = r.parse_card("9S")
 def a_setup(seat=0, dealer=3, up_card=UP, hand=None, player_eval_sims=1,
             bid_eval_sims=None, discard_eval_sims=None,
             pass_model=h.players.PASS_ZERO,
-            allow_loners=True, stick=False, seed=0, epsilon=None):
+            allow_loners=True, stick=False, seed=0, epsilon=None,
+            assume=h.ASSUME_AUCTION, let_auction_play=True):
     return h.Setup(
         hand=tuple(HAND if hand is None else hand),
         up_card=up_card, seat=seat, dealer=dealer,
@@ -65,7 +66,8 @@ def a_setup(seat=0, dealer=3, up_card=UP, hand=None, player_eval_sims=1,
         discard_eval_sims=(player_eval_sims if discard_eval_sims is None
                            else discard_eval_sims),
         pass_model=pass_model, allow_loners=allow_loners, stick=stick,
-        seed=seed, epsilon=epsilon)
+        seed=seed, epsilon=epsilon, assume=assume,
+        let_auction_play=let_auction_play)
 
 
 def quietly(fn, *args, **kwargs):
@@ -408,3 +410,112 @@ class TestWorkersDoNotChangeTheAnswer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAssumeAnOpeningBid(unittest.TestCase):
+    """
+    Conditioning on one opening bid, rather than walking the auction.
+
+    Two modes, and the difference only shows at a seat the auction can reach
+    late. `--let-auction-play` runs the auction and pins the bid only if it
+    gets there, so an earlier caller can take the option away; the other mode
+    skips the auction and prices the call every deal.
+    """
+
+    def test_the_eldest_seat_always_gets_the_option(self):
+        # Seat 0 with dealer 3 speaks first, so nothing can preempt it and the
+        # rate is 100% without the flag doing any work.
+        setup = a_setup(seat=0, dealer=3, assume=h.ASSUME_ORDER)
+        got = [h.play_one(setup, i) for i in range(12)]
+        self.assertTrue(all(rec.forced for rec in got))
+        self.assertTrue(all(rec.caller == 0 for rec in got))
+
+    def test_a_late_seat_can_be_preempted(self):
+        # Seat 2 with dealer 3 speaks third, so seats 3 and 0 bid first and
+        # sometimes end the auction before it can order.
+        setup = a_setup(seat=2, dealer=3, assume=h.ASSUME_ORDER)
+        got = [h.play_one(setup, i) for i in range(24)]
+        self.assertTrue(any(rec.forced for rec in got), "never got to order")
+        self.assertFalse(all(rec.forced for rec in got),
+                         "seat 2 was never preempted in 24 deals, which the "
+                         "walked auction should manage")
+        for rec in got:
+            if rec.forced:
+                self.assertEqual(rec.caller, 2)
+
+    def test_skipping_the_auction_always_orders(self):
+        setup = a_setup(seat=2, dealer=3, assume=h.ASSUME_ORDER,
+                        let_auction_play=False)
+        got = [h.play_one(setup, i) for i in range(16)]
+        self.assertTrue(all(rec.forced for rec in got))
+        self.assertTrue(all(rec.caller == 2 for rec in got))
+
+    def test_the_two_modes_agree_exactly_from_the_eldest_seat(self):
+        """
+        The check that pins `table.play_pinned_order` to the walked path.
+
+        From eldest the auction cannot be preempted, and `ForcedOpeningBid`
+        returns the pinned bid without ever calling the inner player -- so no
+        seat consumes any rng before the dealer's discard. Both routes must
+        therefore draw identical worlds and produce identical records, not
+        merely similar ones. Anything less means the pinned path is reaching
+        for different state than the auction does.
+        """
+        walked = a_setup(seat=0, dealer=3, assume=h.ASSUME_ORDER)
+        skipped = a_setup(seat=0, dealer=3, assume=h.ASSUME_ORDER,
+                          let_auction_play=False)
+        for i in range(10):
+            self.assertEqual(h.play_one(walked, i), h.play_one(skipped, i),
+                             "deal %d differed between the walked and the "
+                             "pinned path" % i)
+
+    def test_a_loner_is_pinned_as_a_loner(self):
+        setup = a_setup(seat=0, dealer=3, assume=h.ASSUME_ALONE,
+                        let_auction_play=False)
+        got = [h.play_one(setup, i) for i in range(8)]
+        self.assertTrue(all(rec.alone for rec in got))
+        # Alone scoring is one of {-2, 1, 4} and never 2 -- the invariant the
+        # solver tests assert, checked here on the seat's own scale.
+        for rec in got:
+            self.assertIn(rec.caller_score, (-2, 1, 4))
+
+
+class TestLetAuctionPlayArguments(unittest.TestCase):
+
+    def test_it_defaults_to_true(self):
+        setup = h.setup_from(h.parse_args(["JS AS 9H 9D TC"]))
+        self.assertTrue(setup.let_auction_play)
+
+    def test_skipping_needs_a_call_to_price(self):
+        for extra in (["--assume", "pass"], []):
+            with self.subTest(extra=extra):
+                with self.assertRaises(SystemExit):
+                    h.setup_from(h.parse_args(
+                        ["JS AS 9H 9D TC", "--no-let-auction-play"] + extra))
+
+    def test_skipping_is_accepted_for_both_order_modes(self):
+        for assume in (h.ASSUME_ORDER, h.ASSUME_ALONE):
+            with self.subTest(assume=assume):
+                setup = h.setup_from(h.parse_args(
+                    ["JS AS 9H 9D TC", "--assume", assume,
+                     "--no-let-auction-play"]))
+                self.assertFalse(setup.let_auction_play)
+                self.assertEqual(setup.assume, assume)
+
+
+class TestAssumeReporting(unittest.TestCase):
+
+    def test_it_reports_the_three_stats(self):
+        setup = a_setup(seat=2, dealer=3, assume=h.ASSUME_ORDER)
+        got = [h.play_one(setup, i) for i in range(20)]
+        _, out = quietly(h.report, "x", got, setup)
+        self.assertIn("deals you ordered", out)
+        self.assertIn("EV given you ordered", out)
+        self.assertIn("EV over all deals", out)
+
+    def test_the_walked_auction_keeps_its_single_mean(self):
+        setup = a_setup(assume=h.ASSUME_AUCTION)
+        got = [h.play_one(setup, i) for i in range(6)]
+        _, out = quietly(h.report, "x", got, setup)
+        self.assertIn("EV to your team", out)
+        self.assertNotIn("EV given you", out)

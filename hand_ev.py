@@ -20,6 +20,28 @@ comes back is what happened at the table rather than what was available at it.
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 5000 --workers 8
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 10000         --player-eval-sims 10000 --epsilon 0.4 --workers 10
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --epsilon none   # exact, slow
+    python hand_ev.py "JS AS 9H 9D TC" --up 9S --assume order    # if I order it
+    python hand_ev.py "JS AS 9H 9D TC" --up 9S --seat 2 --assume order         --no-let-auction-play                 # ...ignoring who bids first
+
+**Walking the auction and conditioning on a bid are different questions.** By
+default the asking seat bids for itself, so the reported mean mixes the deals it
+called with the ones it passed and somebody else called -- that is what a hand
+is worth *at a table*. `--assume order` pins the opening bid instead and prices
+**that bid**.
+
+With `--assume`, the auction still runs and the bid is pinned only if it reaches
+the seat: from eldest it always does, from a later seat an earlier player can
+call first and take the option away. That is reported rather than hidden, as
+three numbers with no headline among them -- how often the option arrived, what
+the call returned when it did, and what the hand returned across all deals. How
+often you get to bid is as much a part of a hand's worth as what the bid pays.
+
+`--no-let-auction-play` skips the auction entirely and prices the call every
+deal, which is the only way to compare seats on equal footing, since otherwise
+a late seat's number is contaminated by how often it gets preempted. It needs
+`--assume order` or `--assume order-alone`; there is nothing to price without
+one, and it is incoherent for `--assume pass`, where passing *is* the auction
+continuing.
 
 Two nested sim counts, doing different jobs:
 
@@ -166,6 +188,10 @@ class Setup:
     seed: int
     prune_discards: bool = False
     assume: str = ASSUME_AUCTION
+    # True: run the auction and pin the opening bid only if it reaches this
+    # seat, so an earlier caller can take the option away. False: skip the
+    # auction entirely and price the call from this seat regardless.
+    let_auction_play: bool = True
     # Last, and defaulted, so the field order the tests build a Setup with
     # keeps working. None means exact averaging -- see players._race.
     epsilon: Optional[float] = None
@@ -187,7 +213,7 @@ class Setup:
                                     prune_discards=self.prune_discards,
                                     rng=random.Random(self.seed * 7919 + i * 4 + s))
                  for s in range(game.PLAYERS)]
-        if self.assume != ASSUME_AUCTION:
+        if self.assume != ASSUME_AUCTION and self.let_auction_play:
             action = t.PASS if self.assume == ASSUME_PASS else t.ORDER
             table[self.seat] = players.ForcedOpeningBid(
                 table[self.seat], action,
@@ -239,11 +265,16 @@ ROLES = ("you called", "partner called", "opponent called", "passed out")
 def play_one(setup: Setup, i: int) -> Record:
     """One sampled layout, played out by four PIMC sim players."""
     table = setup.table(i)
-    result = t.play_deal(setup.deal(i), table,
-                         stick_the_dealer=setup.stick,
-                         allow_loners=setup.allow_loners)
-    seated = table[setup.seat]
-    fired = getattr(seated, "forced", True)
+    if setup.assume in (ASSUME_ORDER, ASSUME_ALONE) and not setup.let_auction_play:
+        # No auction at all, so the call always happens by construction.
+        result = t.play_pinned_order(setup.deal(i), table, setup.seat,
+                                     alone=(setup.assume == ASSUME_ALONE))
+        fired = True
+    else:
+        result = t.play_deal(setup.deal(i), table,
+                             stick_the_dealer=setup.stick,
+                             allow_loners=setup.allow_loners)
+        fired = getattr(table[setup.seat], "forced", True)
     if result.passed_out:
         return replace(PASSED_OUT, forced=fired)
     return Record(value=b.value_to(setup.seat, result.value),
@@ -339,17 +370,28 @@ def report(name: str, records, setup: Setup):
     mean, half = interval([rec.value for rec in records])
 
     print("  %s" % name)
-    print("    %-30s %+.3f +/- %.3f points per deal"
-          % ("EV to your team", mean, half))
 
-    if setup.assume != ASSUME_AUCTION:
-        fired = sum(1 for rec in records if rec.forced)
-        if fired != n:
-            print("    %-30s %d of %d deals (%.1f%%) -- the rest never got to "
-                  "bid, so this mean is NOT the assumption asked for"
-                  % ("WARNING: pin fired on", fired, n, 100.0 * fired / n))
-        else:
-            print("    %-30s all %d deals" % ("opening bid pinned on", n))
+    if setup.assume == ASSUME_AUCTION:
+        print("    %-30s %+.3f +/- %.3f points per deal"
+              % ("EV to your team", mean, half))
+    else:
+        # Three numbers, deliberately with no headline among them. How often
+        # the option arrived is as much a part of what the hand is worth as
+        # what the call returned when it did: a hand worth +0.4 whenever you
+        # get to order it, that only gets the chance a third of the time, is a
+        # different proposition from one worth +0.4 every deal.
+        verb = {ASSUME_ORDER: "ordered",
+                ASSUME_ALONE: "ordered alone",
+                ASSUME_PASS: "passed"}[setup.assume]
+        got = [rec for rec in records if rec.forced]
+        sub_mean, sub_half = interval([rec.value for rec in got])
+        print("    %-30s %d of %d (%.1f%%)"
+              % ("deals you " + verb, len(got), n, 100.0 * len(got) / n))
+        if got:
+            print("    %-30s %+.3f +/- %.3f points per deal"
+                  % ("EV given you " + verb, sub_mean, sub_half))
+        print("    %-30s %+.3f +/- %.3f points per deal"
+              % ("EV over all deals", mean, half))
 
     roles = Counter(role_of(rec.caller, setup.seat) for rec in records)
     print("    %-30s" % "how the auction went")
@@ -447,6 +489,13 @@ def parse_args(argv=None):
                              "passed. The others pin the opening bid and "
                              "condition on it -- 'order' is the value of "
                              "ordering this hand up")
+    parser.add_argument("--let-auction-play",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="with --assume, run the auction and pin your "
+                             "opening bid only if it reaches you, so an "
+                             "earlier seat can take the option away. "
+                             "--no-let-auction-play skips the auction and "
+                             "prices the call from your seat every deal")
     parser.add_argument("--epsilon", type=_epsilon, default=EPSILON,
                         help="indifference band, in points. A decision stops "
                              "sampling once its remaining options are within "
@@ -507,6 +556,15 @@ def setup_from(args) -> Setup:
             raise SystemExit("%s must be 0-%d, got %r"
                              % (name, game.PLAYERS - 1, value))
 
+    if not args.let_auction_play and args.assume not in (ASSUME_ORDER,
+                                                         ASSUME_ALONE):
+        raise SystemExit(
+            "--no-let-auction-play only means something with --assume %s or "
+            "%s: there is no pinned call to price without one, and skipping "
+            "the auction is incoherent for --assume %s, where passing is the "
+            "auction continuing."
+            % (ASSUME_ORDER, ASSUME_ALONE, ASSUME_PASS))
+
     return Setup(hand=hand, up_card=up_card, seat=args.seat,
                  dealer=args.dealer,
                  player_eval_sims=_budget(args.player_eval_sims, None,
@@ -519,6 +577,7 @@ def setup_from(args) -> Setup:
                  pass_model=args.pass_model, epsilon=args.epsilon,
                  prune_discards=args.prune_top_trumps,
                  assume=args.assume,
+                 let_auction_play=args.let_auction_play,
                  allow_loners=not args.no_loners, stick=args.stick,
                  seed=args.seed)
 
@@ -542,11 +601,14 @@ def describe(setup: Setup, args):
              "" if setup.allow_loners else ", loners off",
              ", stick the dealer" if setup.stick else ""))
     if setup.assume != ASSUME_AUCTION:
-        print("  %-30s you always %s (conditioned, not walked)"
+        print("  %-30s you %s%s"
               % ("assumption",
                  {ASSUME_ORDER: "order it up",
                   ASSUME_ALONE: "order it up alone",
-                  ASSUME_PASS: "pass"}[setup.assume]))
+                  ASSUME_PASS: "pass"}[setup.assume],
+                 " whenever the auction reaches you"
+                 if setup.let_auction_play
+                 else " every deal (auction skipped)"))
     if args.workers > 1:
         print("  %-30s %d processes" % ("workers", args.workers))
     print()

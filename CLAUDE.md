@@ -82,6 +82,7 @@ python hand_ev.py "JS AS 9H 9D TC" --up 9S --seat 0 --dealer 3
 python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 2000 --player-eval-sims 50
 python hand_ev.py "JS AS 9H 9D TC" --up 9S --both --deals 500
 python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 5000 --workers 8
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --assume order    # if I order it
 ```
 
 `pimc_example.py` is the one to read first. It plays a single pinned deal and
@@ -720,6 +721,45 @@ every measurement above are unchanged.
 The old default was 10 worlds a card decision -- below `min_worlds`, so it could
 never race at all. The new ones cost 1.052 s/deal at `epsilon 0.05` and 0.481 at
 `epsilon 0.40`, against 0.39 for the old 10, so 2.7x for 13x the worlds.
+
+**`--assume`: the value of one opening bid, not of the whole auction.** By
+default the asking seat bids for itself, so the mean mixes the deals it called
+with the ones it passed and somebody else called. `--assume order` (also
+`order-alone`, `pass`) pins the opening bid and conditions on it.
+
+`players.ForcedOpeningBid` does the pinning, and **only the opening bid**: the
+seat still discards and plays for itself, the other seats bid normally, and the
+dealer still chooses its own discard through `table._settle_order`, so an
+opposing dealer still pitches to hurt the contract.
+
+**The auction still runs, and may not reach the seat.** From eldest it always
+does. From a later seat an earlier player can call first and the option never
+arrives -- 13 of 20 deals from seat 2 with dealer 3, against 10000 of 10000
+from seat 0. That is data, not an error, so the report gives three numbers with
+no headline among them:
+
+```
+    deals you ordered              27 of 40 (67.5%)
+    EV given you ordered           -0.667 +/- 0.573 points per deal
+    EV over all deals              -0.200 +/- 0.507 points per deal
+```
+
+Those two means answer different questions and can point opposite ways, as they
+do here: ordering is worth -0.667 when seat 2 gets to, but the hand returns only
+-0.200 overall, because on the third of deals where somebody preempts it that
+team does better than it would have by ordering. How often the option arrives is
+as much a part of what a hand is worth as what the call pays.
+
+`--no-let-auction-play` skips the auction and prices the call every deal, via
+`table.play_pinned_order`. It is the only way to compare seats on equal footing,
+since a late seat's walked number is contaminated by how often it is preempted.
+It requires `--assume order` or `order-alone` and is rejected otherwise.
+
+Two checks hold it together: from eldest the walked and pinned paths must
+produce **identical records**, since `ForcedOpeningBid` returns without calling
+the inner player and so no seat consumes rng before the dealer's discard; and
+`Record.forced` carries per deal whether the pin fired, which is what the rate
+is counted from.
 
 **Two nested sim counts, and they do different jobs.** `--deals` is the outer
 loop, the total hand sims, and it is the only one the error bar is on: outcomes
