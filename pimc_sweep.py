@@ -272,7 +272,7 @@ def main(argv=None):
                              % (players.RESEARCHED_PLAY, players.RESEARCHED_BID,
                                 players.RESEARCHED_DISCARD))
     parser.add_argument("--pass-model", default=players.PASS_GOD_MODE,
-                        choices=(players.PASS_GOD_MODE, players.PASS_ZERO),
+                        choices=players.PASS_MODELS,
                         help="how a PIMC sim player prices passing")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-loners", action="store_true",

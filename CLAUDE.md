@@ -601,6 +601,54 @@ not free" turning up as a measurement trap rather than a bidding one -- do not
 read a per-call average as a strength number. What `"zero"` reliably is, is
 about 4x faster.
 
+**A third pass model, `"floor"`, and it is the sharpest version of the trap
+above.** `pass_model="floor"` is `"god"` with a pass floored at zero --
+`max(rest_of_auction, 0)`. The reasoning is sound: `"god"` prices a pass at
+whatever the rest of the auction does, and inside a sampled world the other
+seats can see the hand this player is hiding, so the pass branch reads "an
+opponent calls this and makes it" far more often than a real table would. A
+seat with a bad hand then makes a desperate call because declining looked
+worse. Flooring at zero removes exactly that pessimism.
+
+It works, on every measure except the one that counts. Same 60 deals, 20 play /
+10 bid samples:
+
+|                           | `zero` | `god` | `floor` |
+| ------------------------- | ------ | ----- | ------- |
+| euchred                   | 11.7%  | 36.7% | **15.3%** |
+| contracts made            | 53/60  | 38/60 | 50/59   |
+| ordered up in round one   | 58     | 54    | **33**  |
+| named a suit in round two |  2     |  6    | **26**  |
+| called alone              |  5.0%  |  8.3% | 18.3%   |
+| passed out                |  0     |  0    | **1**   |
+| mean tricks to the caller | 3.57   | 2.85  | 3.54    |
+
+The auction shape is the most realistic the project has produced. Round-one
+orders collapse from 54 to 33 and round-two calls rise from 6 to 26 -- once
+declining cannot be worse than nothing, seats stop grabbing the up-card out of
+fear and turn it down to name a better suit. It also produced **the first
+pass-out ever seen in a `pimc_sweep`**.
+
+**And it is the weakest player of the three.** Head to head against God Mode,
+teams swapped on every deal, 250 deals:
+
+| pass model | margin per deal |
+| ---------- | --------------- |
+| `zero`     | **-1.064 +/- 0.152** |
+| `god`      | -1.280 +/- 0.380 (50 deals) |
+| `floor`    | **-1.468 +/- 0.164** |
+
+`floor` is worse than `zero` by **0.404 +/- 0.22 points a deal**, z ~ 3.5. That
+is a real difference, not noise, and the point estimates barely moved between
+50 and 250 deals (-1.060 to -1.064, -1.460 to -1.468).
+
+Why: it **under-calls**. Flooring the pass makes declining artificially
+attractive, so it turns down contracts it should take. The euchre rate falls
+because it calls less often, not because it calls better -- which is the same
+confusion in the opposite direction from `"zero"`'s flattering per-call
+average. Three models now, and **the ranking by euchre rate is uncorrelated
+with the ranking by strength**. Judge a bidder head to head or not at all.
+
 **Nothing ever passes out, under either model** -- 0 of 60 in the main sweep and
 0 of 40 in all five diagnostic configurations. That was the one prediction in
 this file that did not come true, and the pass model does not explain it:

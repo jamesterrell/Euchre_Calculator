@@ -52,6 +52,12 @@ the auction -- up to 36 solves per sampled world.
             more often than a real table would.
     "zero"  a pass is worth nothing. About 4x faster and a markedly more
             selective bidder; euchre rate is roughly half "god"'s.
+    "floor" "god", but a pass is never worth less than nothing:
+            `max(rest_of_auction, 0)`. Same cost as "god", since it runs the
+            same solves. It fixes what it was meant to fix -- the euchre rate
+            falls from 36.7% to 15.3% -- and it is the **weakest of the three
+            players**, which is the point of keeping it documented. See the
+            module notes in CLAUDE.md before reaching for it.
 
 **Neither is clearly stronger.** Head to head against God Mode with the teams
 swapped on every deal, "god" scores -1.26 +/- 0.36 points a deal and "zero"
@@ -79,6 +85,8 @@ from game import Deal, PLAYERS
 
 PASS_GOD_MODE = "god"
 PASS_ZERO = "zero"
+PASS_FLOOR = "floor"
+PASS_MODELS = (PASS_GOD_MODE, PASS_ZERO, PASS_FLOOR)
 
 # Tie-breaks among options the search rates identically.
 LOW = "low"
@@ -415,7 +423,7 @@ class PIMCPlayer:
                  epsilon: Optional[float] = None,
                  min_worlds: int = MIN_WORLDS,
                  prune_discards: bool = False):
-        if pass_model not in (PASS_GOD_MODE, PASS_ZERO):
+        if pass_model not in PASS_MODELS:
             raise ValueError("no such pass model: %r" % (pass_model,))
         if epsilon is not None and epsilon < 0:
             raise ValueError("epsilon must not be negative: %r" % (epsilon,))
@@ -491,6 +499,15 @@ class PIMCPlayer:
             rest = b.rest_of_auction(
                 deal, turn.index + 1, turn.order, turn.stick_the_dealer,
                 turn.allow_loners, turn.bidding_round, self.prune_discards)
+            if self.pass_model == PASS_FLOOR:
+                # Declining cannot be worth less than nothing. "god" prices a
+                # pass at whatever the rest of the auction does, and inside a
+                # sampled world the other seats can see this hand -- so that
+                # branch reads "an opponent calls this and makes it" far more
+                # often than a real table would, and a seat with a bad hand
+                # ends up making a desperate call because passing looked worse.
+                # The floor removes only that pessimism and leaves the rest.
+                return max(b.value_to(turn.seat, rest.value), 0)
             value = rest.value
         elif option.action == t.ORDER:
             self.solves += 1

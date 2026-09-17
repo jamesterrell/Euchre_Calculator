@@ -304,7 +304,7 @@ def main(argv=None):
                              % (players.RESEARCHED_PLAY, players.RESEARCHED_BID,
                                 players.RESEARCHED_DISCARD))
     parser.add_argument("--pass-model", default=players.PASS_GOD_MODE,
-                        choices=(players.PASS_GOD_MODE, players.PASS_ZERO),
+                        choices=players.PASS_MODELS,
                         help="how a seat prices passing. 'zero' makes the rule "
                              "exactly 'call only if calling is worth more than "
                              "nothing'")
