@@ -96,7 +96,7 @@ import random
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional, Tuple
 
 import bidding as b
@@ -106,6 +106,16 @@ import rotation as r
 import table as t
 
 DEALS = 1000
+
+# What the asking seat is assumed to do with its first bid. AUCTION walks the
+# auction and lets the seat decide, which mixes the deals it called with the
+# ones it passed; the others condition on one opening bid so the reported mean
+# is the value of *that bid*. See players.ForcedOpeningBid.
+ASSUME_AUCTION = "auction"
+ASSUME_ORDER = "order"
+ASSUME_ALONE = "order-alone"
+ASSUME_PASS = "pass"
+ASSUMPTIONS = (ASSUME_AUCTION, ASSUME_ORDER, ASSUME_ALONE, ASSUME_PASS)
 
 # Defaults per decision kind, set to the measured mean number of sampled worlds
 # each needs before its argmax stops moving -- 40,390 decisions, see
@@ -155,6 +165,7 @@ class Setup:
     stick: bool
     seed: int
     prune_discards: bool = False
+    assume: str = ASSUME_AUCTION
     # Last, and defaulted, so the field order the tests build a Setup with
     # keeps working. None means exact averaging -- see players._race.
     epsilon: Optional[float] = None
@@ -168,14 +179,20 @@ class Setup:
 
     def table(self, i: int):
         """Four PIMC sim players, seeded per deal and per seat."""
-        return [players.PIMCPlayer(samples=self.player_eval_sims,
-                                   bid_samples=self.bid_eval_sims,
-                                   discard_samples=self.discard_eval_sims,
-                                   pass_model=self.pass_model,
-                                   epsilon=self.epsilon,
-                                   prune_discards=self.prune_discards,
-                                   rng=random.Random(self.seed * 7919 + i * 4 + s))
-                for s in range(game.PLAYERS)]
+        table = [players.PIMCPlayer(samples=self.player_eval_sims,
+                                    bid_samples=self.bid_eval_sims,
+                                    discard_samples=self.discard_eval_sims,
+                                    pass_model=self.pass_model,
+                                    epsilon=self.epsilon,
+                                    prune_discards=self.prune_discards,
+                                    rng=random.Random(self.seed * 7919 + i * 4 + s))
+                 for s in range(game.PLAYERS)]
+        if self.assume != ASSUME_AUCTION:
+            action = t.PASS if self.assume == ASSUME_PASS else t.ORDER
+            table[self.seat] = players.ForcedOpeningBid(
+                table[self.seat], action,
+                alone=(self.assume == ASSUME_ALONE))
+        return table
 
 
 @dataclass(frozen=True)
@@ -188,6 +205,11 @@ class Record:
     alone: bool
     caller_tricks: int
     caller_score: int
+    # Did the --assume pin actually fire? It cannot when an earlier seat has
+    # already ended the auction, which is impossible from the eldest seat and
+    # possible from any other. A sweep that averaged those in would be
+    # answering a different question than the one asked, quietly.
+    forced: bool = True
 
     @property
     def passed_out(self) -> bool:
@@ -216,17 +238,20 @@ ROLES = ("you called", "partner called", "opponent called", "passed out")
 
 def play_one(setup: Setup, i: int) -> Record:
     """One sampled layout, played out by four PIMC sim players."""
-    result = t.play_deal(setup.deal(i), setup.table(i),
+    table = setup.table(i)
+    result = t.play_deal(setup.deal(i), table,
                          stick_the_dealer=setup.stick,
                          allow_loners=setup.allow_loners)
+    seated = table[setup.seat]
+    fired = getattr(seated, "forced", True)
     if result.passed_out:
-        return PASSED_OUT
+        return replace(PASSED_OUT, forced=fired)
     return Record(value=b.value_to(setup.seat, result.value),
                   caller=result.contract.caller,
                   trump=result.contract.trump,
                   alone=result.contract.alone,
                   caller_tricks=result.caller_tricks,
-                  caller_score=result.caller_score)
+                  caller_score=result.caller_score, forced=fired)
 
 
 def solve_one(setup: Setup, i: int) -> Record:
@@ -317,6 +342,15 @@ def report(name: str, records, setup: Setup):
     print("    %-30s %+.3f +/- %.3f points per deal"
           % ("EV to your team", mean, half))
 
+    if setup.assume != ASSUME_AUCTION:
+        fired = sum(1 for rec in records if rec.forced)
+        if fired != n:
+            print("    %-30s %d of %d deals (%.1f%%) -- the rest never got to "
+                  "bid, so this mean is NOT the assumption asked for"
+                  % ("WARNING: pin fired on", fired, n, 100.0 * fired / n))
+        else:
+            print("    %-30s all %d deals" % ("opening bid pinned on", n))
+
     roles = Counter(role_of(rec.caller, setup.seat) for rec in records)
     print("    %-30s" % "how the auction went")
     for role in ROLES:
@@ -405,6 +439,14 @@ def parse_args(argv=None):
                         help="how a player prices passing: 'zero' is worth "
                              "nothing and ~4x faster, 'god' runs the rest of "
                              "the auction in God Mode (default zero)")
+    parser.add_argument("--assume", default=ASSUME_AUCTION,
+                        choices=ASSUMPTIONS,
+                        help="what your seat does with its first bid. "
+                             "'auction' (default) lets it decide, so the mean "
+                             "mixes the deals you called with the ones you "
+                             "passed. The others pin the opening bid and "
+                             "condition on it -- 'order' is the value of "
+                             "ordering this hand up")
     parser.add_argument("--epsilon", type=_epsilon, default=EPSILON,
                         help="indifference band, in points. A decision stops "
                              "sampling once its remaining options are within "
@@ -476,6 +518,7 @@ def setup_from(args) -> Setup:
                                            DISCARD_EVAL_SIMS),
                  pass_model=args.pass_model, epsilon=args.epsilon,
                  prune_discards=args.prune_top_trumps,
+                 assume=args.assume,
                  allow_loners=not args.no_loners, stick=args.stick,
                  seed=args.seed)
 
@@ -498,6 +541,12 @@ def describe(setup: Setup, args):
              else ", epsilon %g" % setup.epsilon,
              "" if setup.allow_loners else ", loners off",
              ", stick the dealer" if setup.stick else ""))
+    if setup.assume != ASSUME_AUCTION:
+        print("  %-30s you always %s (conditioned, not walked)"
+              % ("assumption",
+                 {ASSUME_ORDER: "order it up",
+                  ASSUME_ALONE: "order it up alone",
+                  ASSUME_PASS: "pass"}[setup.assume]))
     if args.workers > 1:
         print("  %-30s %d processes" % ("workers", args.workers))
     print()

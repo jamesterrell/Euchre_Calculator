@@ -631,6 +631,71 @@ class PIMCPlayer:
                      trump=turn.trump)
 
 
+class ForcedOpeningBid:
+    """
+    A player whose **first** bid is pinned; everything after it is its own.
+
+    This is how "what is this hand worth if I order it up" gets asked, as
+    opposed to "what happens to this hand at a table". The two are different
+    questions and `hand_ev.py` answers the second by default: it walks the
+    auction, so the reported mean mixes the deals the seat called with the ones
+    it passed and somebody else called. Pinning the opening bid conditions on
+    the call instead.
+
+    Only the opening bid is forced. The seat still discards and plays for
+    itself, every other seat bids normally, and -- crucially -- the dealer
+    still chooses its own discard through `table._settle_order`, so an
+    opposing dealer still pitches to hurt the contract. Nothing about the sim
+    is bypassed except the one decision being conditioned on.
+
+    `forced` records whether the pin actually fired. It will not when an
+    earlier seat has already ended the auction, which cannot happen from the
+    eldest seat but can from any other, and a sweep that silently averaged
+    those in would not be answering the question it was asked.
+    """
+
+    def __init__(self, inner, action: str, alone: bool = False,
+                 suit: Optional[int] = None):
+        self.inner = inner
+        self.action = action
+        self.alone = alone
+        self.suit = suit
+        self.spoken = False
+        self.forced = False
+
+    def _match(self, options):
+        for option in options:
+            if option.action != self.action or bool(option.alone) != self.alone:
+                continue
+            if self.suit is not None and option.suit != self.suit:
+                continue
+            return option
+        return None
+
+    def bid(self, turn):
+        if not self.spoken:
+            self.spoken = True
+            pinned = self._match(turn.options)
+            if pinned is not None:
+                self.forced = True
+                return pinned
+        return self.inner.bid(turn)
+
+    def discard(self, turn):
+        return self.inner.discard(turn)
+
+    def play(self, turn):
+        return self.inner.play(turn)
+
+    @property
+    def last_scores(self):
+        return getattr(self.inner, "last_scores", {})
+
+    @property
+    def solves(self):
+        return getattr(self.inner, "solves", 0)
+
+
 def table_of(factory, n: int = PLAYERS, seed: Optional[int] = None):
     """
     Four players from one factory, called with the seat number.
