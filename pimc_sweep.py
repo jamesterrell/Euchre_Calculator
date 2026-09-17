@@ -9,7 +9,6 @@ and this reports where the two part company.
     python pimc_sweep.py 200 --samples 30   # more deals, more search
     python pimc_sweep.py 60 --head-to-head  # what does seeing actually buy?
     python pimc_sweep.py 100 --pass-model zero --bid-samples 16
-    python pimc_sweep.py 60 --researched-defaults   # 132/231/266 a decision
 
 Three things worth watching, all places God Mode was expected to mislead:
 
@@ -43,12 +42,6 @@ import rotation as r
 import table as t
 
 DEALS = 40
-
-# The sample counts every measurement in CLAUDE.md was taken at. Kept as the
-# default so those numbers stay comparable; --researched-defaults opts in to
-# players.RESEARCHED_*, the measured mean settle points.
-SAMPLES = 20
-BID_SAMPLES = 10
 
 
 class Profile:
@@ -254,23 +247,21 @@ def main(argv=None):
         description="Play deals with players who cannot see each other's hands.")
     parser.add_argument("deals", nargs="?", type=int, default=DEALS,
                         help="how many deals to play (default %d)" % DEALS)
-    parser.add_argument("--samples", type=int, default=None,
+    parser.add_argument("--samples", type=int,
+                        default=players.RESEARCHED_PLAY,
                         help="layouts sampled per card-play decision "
-                             "(default %d)" % SAMPLES)
-    parser.add_argument("--bid-samples", type=int, default=None,
+                             "(default %d, the measured mean settle point)"
+                             % players.RESEARCHED_PLAY)
+    parser.add_argument("--bid-samples", type=int,
+                        default=players.RESEARCHED_BID,
                         help="layouts sampled per bidding decision (default "
                              "%d); these cost far more each than card-play "
-                             "samples" % BID_SAMPLES)
-    parser.add_argument("--discard-samples", type=int, default=None,
-                        help="layouts sampled per discard decision; defaults "
-                             "to --bid-samples")
-    parser.add_argument("--researched-defaults", action="store_true",
-                        help="use the measured mean settle point for each kind "
-                             "of decision -- %d play / %d bid / %d discard. "
-                             "See notes/settle_counts.md. Off by default so "
-                             "the sweeps recorded in CLAUDE.md stay comparable"
-                             % (players.RESEARCHED_PLAY, players.RESEARCHED_BID,
-                                players.RESEARCHED_DISCARD))
+                             "samples" % players.RESEARCHED_BID)
+    parser.add_argument("--discard-samples", type=int,
+                        default=players.RESEARCHED_DISCARD,
+                        help="layouts sampled per discard decision (default "
+                             "%d, the hungriest of the three)"
+                             % players.RESEARCHED_DISCARD)
     parser.add_argument("--pass-model", default=players.PASS_GOD_MODE,
                         choices=players.PASS_MODELS,
                         help="how a PIMC sim player prices passing")
@@ -287,21 +278,11 @@ def main(argv=None):
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="print every deal")
     args = parser.parse_args(argv)
-    args.samples = players.sample_budget(
-        args.samples, args.researched_defaults, players.RESEARCHED_PLAY,
-        SAMPLES)
-    args.bid_samples = players.sample_budget(
-        args.bid_samples, args.researched_defaults, players.RESEARCHED_BID,
-        BID_SAMPLES)
-    args.discard_samples = players.sample_budget(
-        args.discard_samples, args.researched_defaults,
-        players.RESEARCHED_DISCARD, args.bid_samples)
 
     print("Euchre: God Mode vs the PIMC sim")
-    print("  %d deals, %d play / %d bid / %d discard samples, pass model %r%s%s"
+    print("  %d deals, %d play / %d bid / %d discard samples, pass model %r%s"
           % (args.deals, args.samples, args.bid_samples, args.discard_samples,
              args.pass_model,
-             " (researched defaults)" if args.researched_defaults else "",
              "" if not args.no_loners else ", loners off"))
     started = time.time()
 

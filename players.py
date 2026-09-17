@@ -194,26 +194,13 @@ def _pick(scored, order, tie_break=LOW, trump=None):
 # answer is worth the same by construction.
 #
 # They live here rather than in one of the scripts because they are a property
-# of the player, not of whichever tool is driving it. They are **not** the
-# PIMCPlayer defaults: pimc_sweep.py and pimc_example.py keep their historical
-# sample counts so every measurement in CLAUDE.md stays comparable, and opt in
-# with --researched-defaults.
+# of the player, not of whichever tool is driving it, and they **are** the
+# defaults -- for PIMCPlayer itself and for every script that drives it. The
+# eyeballed counts the scripts used to carry (20/10 and 24/16) are gone; pass
+# --samples / --bid-samples / --discard-samples to override a run.
 RESEARCHED_PLAY = 132            # a card:    mean settle 132.3 +/- 4.2
 RESEARCHED_BID = 231             # a bid:     mean settle 231.1 +/- 12.3
 RESEARCHED_DISCARD = 266         # a discard: mean settle 265.8 +/- 19.9
-
-
-def sample_budget(explicit, use_researched, researched, fallback):
-    """
-    One decision kind's sample count, from the three places it can come from.
-
-    An explicit flag wins; failing that `--researched-defaults` supplies the
-    measured mean; failing that the caller's own historical default applies, so
-    a script that is not asked to change does not change.
-    """
-    if explicit is not None:
-        return explicit
-    return researched if use_researched else fallback
 
 
 # --------------------------------------------- sequential elimination
@@ -424,7 +411,8 @@ class PIMCPlayer:
     it is empty when there was nothing to decide.
     """
 
-    def __init__(self, samples: int = 20, bid_samples: Optional[int] = None,
+    def __init__(self, samples: Optional[int] = None,
+                 bid_samples: Optional[int] = None,
                  discard_samples: Optional[int] = None,
                  pass_model: str = PASS_GOD_MODE, tie_break: str = LOW,
                  rng: Optional[random.Random] = None,
@@ -435,13 +423,14 @@ class PIMCPlayer:
             raise ValueError("no such pass model: %r" % (pass_model,))
         if epsilon is not None and epsilon < 0:
             raise ValueError("epsilon must not be negative: %r" % (epsilon,))
-        self.samples = samples
-        self.bid_samples = samples if bid_samples is None else bid_samples
-        # Discard gets its own budget because it needs the most: a mean of 266
-        # worlds before its argmax settles, against 231 for a bid and 132 for a
-        # card (notes/settle_counts.md). Defaults to bid_samples, so nothing
-        # that does not ask for it sees any change.
-        self.discard_samples = (self.bid_samples if discard_samples is None
+        # Each kind defaults to the number of worlds it was measured to need
+        # before its argmax stops moving -- notes/settle_counts.md. They are
+        # per-kind rather than one number carried across, because bidding and
+        # discarding need roughly twice what a card does.
+        self.samples = RESEARCHED_PLAY if samples is None else samples
+        self.bid_samples = (RESEARCHED_BID if bid_samples is None
+                            else bid_samples)
+        self.discard_samples = (RESEARCHED_DISCARD if discard_samples is None
                                 else discard_samples)
         self.pass_model = pass_model
         self.tie_break = tie_break

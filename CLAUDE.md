@@ -60,18 +60,28 @@ python pimc_example.py --pass-model zero  # ...with passing priced at nothing
 python pimc_sweep.py                      # 40 deals, PIMC sim vs God Mode
 python pimc_sweep.py 60 --head-to-head    # what does seeing actually buy?
 python pimc_sweep.py 100 --pass-model zero --bid-samples 16
-python pimc_sweep.py 60 --researched-defaults   # 132/231/266 a decision
-python pimc_example.py --researched-defaults
+python pimc_sweep.py 60 --samples 20 --bid-samples 10   # the old counts
 ```
 
-`--researched-defaults` on either PIMC sim script sets all three sample counts
-to the measured mean settle point for that kind of decision -- 132 play, 231
-bid, 266 discard, from `notes/settle_counts.md`. It is **off by default** and
-both scripts keep their historical counts (20/10 for the sweep, 24/16 for the
-example), so every measurement recorded in this file stays comparable. The
-constants live in `players.py` as `RESEARCHED_PLAY` / `RESEARCHED_BID` /
-`RESEARCHED_DISCARD`, since they are a property of the player rather than of
-any one script; `hand_ev.py` is the one tool that adopts them as its default.
+**Every tool now defaults to the measured sample counts** -- 132 worlds per card
+decision, 231 per bid, 266 per discard, from `notes/settle_counts.md`. They live
+in `players.py` as `RESEARCHED_PLAY` / `RESEARCHED_BID` / `RESEARCHED_DISCARD`,
+are the defaults on `PIMCPlayer` itself, and are what `pimc_sweep.py`,
+`pimc_example.py` and `hand_ev.py` run at unless a flag says otherwise. Pass
+`--samples` / `--bid-samples` / `--discard-samples` to override one kind.
+
+The eyeballed counts the scripts used to carry are gone: 20 play / 10 bid for
+the sweep, 24/16 for the example, and `samples=20` on `PIMCPlayer`. Each kind
+now defaults to its own measured number rather than one value carried across all
+three, because bidding and discarding need roughly twice what a card does.
+
+> **The measurement tables below predate that change.** Everything in "What
+> honest players actually do" and the pass-model comparison was taken at
+> **20 play / 10 bid samples**, which is no longer what a bare `pimc_sweep.py`
+> runs. To reproduce them, say so explicitly:
+> `python pimc_sweep.py 60 --samples 20 --bid-samples 10 --discard-samples 10`.
+> They have not been re-measured at the new defaults, and the sample count is
+> known to move a PIMC player's bidding, so do not assume they carry over.
 
 And the EV of one pinned hand, which is the question the calculator exists to
 answer -- same PIMC sim table, but every sampled layout is played out rather
