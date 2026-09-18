@@ -431,11 +431,13 @@ Neither makes it weak.
 
 **Pricing a pass is nearly the whole cost of bidding.** A pass is worth whatever
 the rest of the auction does, so `pass_model="god"` (the default) runs the rest
-of the auction in God Mode inside each sampled world -- up to 36 solves per
-sample. It is inconsistent in an obvious way, since inside the sample the other
-seats can see the hand this player is hiding, and it is still the best available
-answer to "what happens if I decline". `pass_model="zero"` prices a pass at 0
-instead: much faster, and a markedly more aggressive bidder.
+of the auction in God Mode inside each sampled world -- up to 50 solves per
+sample with loners allowed, 27 without, and 0 for the last seat in round two,
+where a pass really does end the deal. It is inconsistent in an obvious way,
+since inside the sample the other seats can see the hand this player is hiding,
+and it is still the best available answer to "what happens if I decline".
+`pass_model="zero"` prices a pass at 0 instead: much faster, and a markedly
+more aggressive bidder.
 
 Card play is cheap by comparison -- a mid-hand position solve is far smaller
 than a whole hand, and a seat with one legal card skips the search entirely
@@ -922,10 +924,11 @@ every hand. It is the baseline against which heuristic bidders get measured,
 not the destination -- replace the decision rule, keep the machinery.
 
 The tree is a chain, not an exponential: round one is four order-or-pass
-decisions and an order ends it, round two is four name-or-pass decisions. At
-most 32 God Mode solves per deal (20 in round one, since ordering up makes
-the dealer choose among its five dealt cards, plus 12 in round two), so about
-10-25 ms.
+decisions and an order ends it, round two is four name-or-pass decisions.
+Exactly 32 God Mode solves per deal (20 in round one, since ordering up makes
+the dealer choose among its five dealt cards, plus 12 in round two) -- exactly
+rather than at most, since pricing a pass always runs the chain to the end. So
+about 10-25 ms.
 
 Everything is scored as **net points to team 0**, so calls by different seats
 can be compared on one scale. `net_to_team0` converts from
@@ -996,8 +999,10 @@ Three things worth knowing before touching it:
 - **It is not monotone for either team.** The loner is an extra option for
   *both* sides, so team 0's value moves down on the deals where team 1 is the
   one with the loner. Don't assert a direction.
-- **Cost:** ~64 solves per auction instead of 32, but lone solves are ~3x
-  cheaper, so the wall clock goes up by roughly a third, not double.
+- **Cost:** 60 solves per auction instead of 32 -- not 64, because a loner
+  whose partner is the dealer collapses five identical discards into one. Lone
+  solves are ~3x cheaper, so the wall clock goes up by roughly a third, not
+  double.
 
 `order_up` short-circuits one case: if the caller goes alone and the **dealer is
 the partner sitting out**, the dealer picks up into a hand that never plays, so

@@ -39,7 +39,10 @@ A decision costs (options x samples) solves. Card play is cheap, since a
 mid-hand position solve is far smaller than a whole one. Bidding is where the
 time goes, and nearly all of it goes to pricing *passing*: a pass is worth
 whatever the rest of the auction does, so valuing it means running the rest of
-the auction -- up to 36 solves per sampled world.
+the auction -- up to 50 solves per sampled world with loners allowed, or 27
+without. It costs least from the seats that have least left to decide, and
+nothing at all for the last seat in round two, where a pass really does end
+the deal.
 
 `pass_model` chooses how:
 

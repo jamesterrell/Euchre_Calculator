@@ -9,9 +9,10 @@ bidders can be measured. Replace the decision rule, keep the machinery.
 The tree is small enough to solve exactly. Round one is a chain of four
 order-or-pass decisions and an order ends it; round two is four
 name-a-suit-or-pass decisions. Each leaf is one God Mode trick-play solve, so
-at most 36 solves per deal -- 24 for round one, since ordering up forces the
-dealer to choose among six discards, plus 12 for round two. Well under a tenth
-of a second.
+exactly 32 solves per deal -- 20 for round one, since ordering up makes the
+dealer choose among the five cards it was dealt, plus 12 for round two. Exactly
+rather than at most, because pricing a pass always runs the chain to the end.
+Well under a tenth of a second.
 
 Scoring is **net points to team 0** (seats 0 and 2) throughout, so that one
 number can be maximised and minimised on a single scale:
@@ -23,9 +24,10 @@ number can be maximised and minimised on a single scale:
     passed out                   ->   0
 
 **Loners** are off by default: `allow_loners=True` adds "and alone" beside
-every call, doubling the tree to ~72 solves per auction. Lone solves are far
-cheaper, so wall-clock cost rises well under double. Defending alone is not
-modelled.
+every call, taking the tree to exactly 60 solves per auction rather than 64,
+since a loner whose partner is the dealer collapses five identical discards
+into one. Lone solves are far cheaper, so wall-clock cost rises well under
+double. Defending alone is not modelled.
 
 Three details a looser implementation gets wrong:
 
