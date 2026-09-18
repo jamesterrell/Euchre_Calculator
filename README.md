@@ -10,6 +10,16 @@ Both run on the same exact solver. The difference is entirely in what the
 players are allowed to look at, which is the point -- the gap between the two
 numbers is the price of not being able to see.
 
+There are no Euchre heuristics anywhere in it: no hand-strength count, no
+"always call next", no opening-lead convention, not even the idea that the
+right bower is a good card. The only rule it enforces is that you must follow
+suit. Everything else it works out by playing hands to the end and counting.
+
+**[`docs/writeup.md`](docs/writeup.md) is the long-form version of all of this**
+-- the same engine explained for Euchre players, with one whole deal narrated
+card by card and every option priced. Start there if you want the argument
+rather than the API.
+
 ## The two modes
 
 ### God Mode
@@ -50,7 +60,7 @@ import random, game, table, players
 
 deal = game.deal_random(rng=random.Random(0), dealer=3)
 
-honest = [players.PIMCPlayer(samples=20, rng=random.Random(s)) for s in range(4)]
+honest = [players.PIMCPlayer(rng=random.Random(s)) for s in range(4)]
 result = table.play_deal(deal, honest, allow_loners=True)
 
 print(result)          # seat 2 ordered up diamonds -> 3 tricks, +1 to the caller
@@ -58,6 +68,11 @@ print(result.auction)  # ('seat 0 pass', 'seat 1 pass', 'seat 2 orders up diamon
 ```
 
 Swap in `players.GodModePlayer` for God Mode, or mix them at one table.
+
+Each kind of decision defaults to the number of sampled worlds it was measured
+to need -- 132 for a card, 231 for a bid, 266 for a discard
+(`notes/settle_counts.md`). Pass `samples` / `bid_samples` / `discard_samples`
+to override one of them.
 
 ### What the two say about each other
 
@@ -81,10 +96,13 @@ prints what every seat could see, what each option was worth, and which it took.
 ### Pricing a pass, and the euchre rate
 
 A PIMC bidder has to put a number on passing, and that number is nearly the
-whole cost of bidding. `pass_model="god"` -- the default -- values a pass by
-running the rest of the auction in God Mode inside each sampled world.
-`pass_model="zero"` prices it at nothing, so a seat calls whenever its own call
-averages better than 0.
+whole cost of bidding. There are two models, and the writeup names them by what
+they do:
+
+- **"play it out"** (`pass_model="god"`, the `PIMCPlayer` default) values a pass
+  by running the rest of the auction in God Mode inside each sampled world.
+- **"nothing"** (`pass_model="zero"`, what `hand_ev.py` uses) prices a pass at
+  zero, so a seat calls whenever its own call averages better than 0.
 
 The same 300 deals either way -- same seeds, same dealer rotation, 20 play
 samples and 10 bid samples, loners allowed. The God Mode column comes out
@@ -130,20 +148,76 @@ chose to call and silently drops whatever the deals it passed on cost it.
 Passing is not free. What `"zero"` reliably is, is about 4x faster: 205s against
 497s for these 300 deals.
 
+**So why prefer "nothing"?** Not because it wins more -- it doesn't. Because it
+behaves like a Euchre player: it turns cards down, it reaches the second round,
+and it makes 250 contracts out of 300. Because it is about four times faster.
+And because it is exactly right where it matters most -- for the last seat to
+speak in round two a pass really does end the deal for nothing, so there the two
+models agree and "nothing" is not an approximation at all. "Play it out" is the
+more principled model carrying a bias it cannot shake; "nothing" is the cruder
+one whose error happens to point the other way.
+
 Neither model will throw a hand in -- 0 passed out of 300, both ways. Getting a
 table to pass a deal out needs a model of what the *other* seats will do with
-it, which is what neither pass model has.
+it, which is what neither pass model has. (A 10,000-deal `hand_ev.py` run later
+turned up 21 throw-ins, so it is rare rather than impossible; 300 deals was
+simply too few to see one.)
+
+`docs/writeup.md` runs the same comparison the other way round -- one deal
+priced under both models, auction and all five tricks, then forty deals played
+three times over.
 
 ```bash
 python pimc_sweep.py 300 --pass-model zero   # the "zero" column, ~3.5 min
 python pimc_sweep.py 300                     # the same deals, pass model "god"
 ```
 
+## What one hand is worth
+
+`pimc_sweep.py` asks what a PIMC table does in general. `hand_ev.py` asks the
+question the calculator actually exists for: **what is this hand, in this seat,
+with this card turned, worth to me?** It pins your five cards, the up-card, your
+seat and the dealer, deals the other eighteen cards at random a few thousand
+times, and lets four blind players bid and play every one of those deals out.
+
+```bash
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --seat 0 --dealer 3
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --assume order      # if I order it
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --both --deals 500  # vs God Mode
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 10000 --workers 8
+```
+
+The right bower, the ace of trump, three rags, and the nine turned. Most tables
+order that up without a second thought. Pinned and priced over 10,000 deals:
+
+```
+  PIMC sim (nobody can see your hand)
+    deals you ordered              10000 of 10000 (100.0%)
+    EV given you ordered           -0.671 +/- 0.031 points per deal
+    your team euchred              5759 of 10000 (57.6%)
+```
+
+**Ordering it up loses two thirds of a point a deal and is euchred 57.6% of the
+time.** Two of the top three trump is not a hand.
+
+Two things to know about reading that number. Only `--deals` narrows the
+interval, at roughly `4/sqrt(deals)`; the per-decision sample counts move the
+mean itself rather than shrinking its error bar. And by default the asking seat
+bids for itself, so the mean mixes the deals it called with the deals somebody
+else called first -- `--assume order` pins the opening bid and conditions on it,
+which is why the run above reports 100%.
+
+Cost: 10,000 deals across six processes took 41 minutes, about 0.25 s a deal and
+some 34 million complete Euchre hands solved. What keeps that finite is
+`--epsilon`, an indifference band that stops sampling an option once it
+provably cannot catch the leader, or cannot matter if it does. `CLAUDE.md` has
+what the band costs and what it changes.
+
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/euchre-calculator.git
-cd euchre-calculator
+git clone https://github.com/jamesterrell/Euchre_Calculator.git
+cd Euchre_Calculator
 pip install numpy numba jupyter
 jupyter notebook interface.ipynb
 ```
@@ -261,7 +335,10 @@ functions compile on first call in a fresh process, about 15 s.
 ├── players.py                # GodModePlayer, PIMCPlayer, RandomPlayer
 ├── pimc_sweep.py             # God Mode against the PIMC sim, in bulk
 ├── pimc_example.py           # One deal, every decision printed
+├── hand_ev.py                # What one pinned hand is worth, played out
 ├── interface.ipynb           # One worked example, notebook form
+├── docs/writeup.md           # The engine explained for Euchre players
+├── notes/                    # Measurements: settle counts, discards, thresholds
 ├── tests/                    # Test suite
 └── archive/                  # Superseded implementations, kept for reference
 ```
@@ -271,7 +348,7 @@ functions compile on first call in a fresh process, about 15 s.
 Standard library `unittest`; nothing extra to install.
 
 ```bash
-python -m unittest discover             # the full suite, ~70s with JIT warmup
+python -m unittest discover             # 399 tests, ~110s with JIT warmup
 python -m unittest tests.test_solver    # one module
 python tests/test_fast_search.py 2000   # randomised regression sweep
 ```
@@ -287,4 +364,4 @@ NumPy, Numba, and Jupyter (optional, for the notebook).
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT. See [LICENSE](LICENSE).
