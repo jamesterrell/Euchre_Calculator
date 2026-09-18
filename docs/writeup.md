@@ -1,3 +1,25 @@
+## TL/DR
+
+- The engine knows the rules of Euchre and nothing else. Every number it prints
+  is the result of monte carlo tree search.
+- Played face up, Euchre is solvable exactly, quickly. That answer is correct
+  and it is not advice, because it assumes you can see through the backs of the
+  cards.
+- Take the knowledge away and the same solver becomes a player: imagine the
+  unseen cards a few hundred ways, solve each, and take the option that does
+  best on average.
+- The hardest question for that player is not which card to lead. It is **what
+  a pass is worth**, because passing hands the deal to somebody else and the
+  engine has to guess what they will do with it.
+- Value a pass by playing the auction out and you get a nervous bidder who
+  calls too much and is euchred for it. Value a pass at nothing and you get a
+  bidder that behaves far more like a person -- and, oddly, costs you nothing
+  in points.
+- And the one result to take to a table: holding the right bower and the ace of
+  trump with the nine turned, **ordering it up is worth -0.67 points a deal and
+  gets you euchred 58% of the time.** A face-up table declines it ten thousand
+  times out of ten thousand, and calls next instead.
+
 # A Euchre engine that never guesses
 
 Ask most Euchre software what a hand is worth and somewhere inside it there is
@@ -973,25 +995,3 @@ counts move the answer instead of narrowing it, and were measured as the point
 where a decision stops changing its mind.
 
 ---
-
-## TL/DR
-
-- The engine knows the rules of Euchre and nothing else. Every number it prints
-  is the result of playing hands out, not of a rule somebody wrote down.
-- Played face up, Euchre is solvable exactly, quickly. That answer is correct
-  and it is not advice, because it assumes you can see through the backs of the
-  cards.
-- Take the knowledge away and the same solver becomes a player: imagine the
-  unseen cards a few hundred ways, solve each, and take the option that does
-  best on average.
-- The hardest question for that player is not which card to lead. It is **what
-  a pass is worth**, because passing hands the deal to somebody else and the
-  engine has to guess what they will do with it.
-- Value a pass by playing the auction out and you get a nervous bidder who
-  calls too much and is euchred for it. Value a pass at nothing and you get a
-  bidder that behaves far more like a person -- and, oddly, costs you nothing
-  in points.
-- And the one result to take to a table: holding the right bower and the ace of
-  trump with the nine turned, **ordering it up is worth -0.67 points a deal and
-  gets you euchred 58% of the time.** A face-up table declines it ten thousand
-  times out of ten thousand, and calls next instead.
