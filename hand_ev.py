@@ -328,6 +328,26 @@ def role_of(caller: int, seat: int) -> str:
 ROLES = ("you called", "partner called", "opponent called", "passed out")
 
 
+def role_label(role: str, setup: "Setup") -> str:
+    """
+    `role_of`'s answer, said in a way that survives `--assume`.
+
+    Under `--assume pass` the asking seat can still end up with the contract,
+    and the line saying so reads like a contradiction until you know that
+    **only the opening bid is pinned** -- `players.ForcedOpeningBid`. The seat
+    passes on the up-card, the up-card is turned down, and round two comes back
+    around to a seat that is now bidding for itself.
+
+    Which round that call came in is not guessed at, it is forced: the pinned
+    bid is the seat's first, the seat's first bid is in round one, and an
+    auction that ends before reaching the seat ends without the seat calling
+    at all. So every call it makes under this assumption is a round-two call.
+    """
+    if role == "you called" and setup.assume == ASSUME_PASS:
+        return "you called (round two)"
+    return role
+
+
 # ------------------------------------------------------------- playing them
 
 
@@ -683,7 +703,7 @@ def report(name: str, records, setup: Setup):
         # different proposition from one worth +0.4 every deal.
         verb = {ASSUME_ORDER: "ordered",
                 ASSUME_ALONE: "ordered alone",
-                ASSUME_PASS: "passed"}[setup.assume]
+                ASSUME_PASS: "passed round one"}[setup.assume]
         got = [rec for rec in records if rec.forced]
         sub_mean, sub_half = interval([rec.value for rec in got])
         print("    %-30s %d of %d (%.1f%%)"
@@ -703,8 +723,8 @@ def report(name: str, records, setup: Setup):
                   if role_of(rec.caller, setup.seat) == role]
         sub_mean, sub_half = interval(subset)
         print("      %-26s %5d (%4.1f%%)  %+.3f +/- %.3f"
-              % (role, roles[role], 100.0 * roles[role] / n,
-                 sub_mean, sub_half))
+              % (role_label(role, setup), roles[role],
+                 100.0 * roles[role] / n, sub_mean, sub_half))
 
     ours = [rec for rec in records
             if not rec.passed_out and rec.caller % 2 == setup.seat % 2]
@@ -950,10 +970,13 @@ def describe(setup: Setup, args):
               % ("assumption",
                  {ASSUME_ORDER: "order it up",
                   ASSUME_ALONE: "order it up alone",
-                  ASSUME_PASS: "pass"}[setup.assume],
+                  ASSUME_PASS: "pass on the up-card"}[setup.assume],
                  " whenever the auction reaches you"
                  if setup.let_auction_play
                  else " every deal (auction skipped)"))
+        if setup.assume == ASSUME_PASS:
+            print("  %-30s %s" % ("", "only that bid is pinned -- round two "
+                                      "is yours to bid for yourself"))
     if setup.engine == FAST:
         bits = args.tt_bits if args.tt_bits is not None             else tt_bits_for(args.deals)
         print("  %-30s compiled, %d thread%s, %d MB transposition table"
