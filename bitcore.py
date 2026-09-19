@@ -5,8 +5,8 @@ The solver again, as bitboards over a trump-canonical card space.
 strength) planes, one card per recursive call, hands carried as arrays that get
 mutated and restored. It is correct, it is the thing every test is written
 against, and it is not fast enough to run ten thousand deals of a Perfect
-Information Monte Carlo sweep in a minute. This is the same search with three
-things changed, each of which is a theorem rather than a heuristic:
+Information Monte Carlo sweep in a minute. This is the same search with four
+things changed, none of them a heuristic:
 
   * **a 24-bit board.** A hand is one integer. Following suit is a mask, the
     trick winner is two comparisons, and playing a card is `h ^ bit`. No
@@ -19,10 +19,19 @@ things changed, each of which is a theorem rather than a heuristic:
     by which cards are dead collapse onto one another. Theorem 2, same note.
     Seats are rotated so the leader is seat 0 (Theorem 3) and the three plain
     suits are sorted into a canonical order (Theorem 4).
+  * **bounds on the score.** A hand is worth one of three numbers, and the
+    tricks already taken usually rule one of them out; the search cuts off
+    against the window on that rather than waiting for the two bounds to meet.
+    Worth half the nodes on a cold table, and it is arithmetic on the payoff
+    rather than a claim about the game.
 
-Every one of those is exact: the value returned is the same minimax value
+Every one of those is exact: the value returned is the minimax value
 `fast_search` returns, and `tests/test_bitcore.py` asserts that on randomised
-sweeps against both it and `reference_solver`.
+whole deals and part-played positions. It checks this module against
+`fast_search` and no further, on purpose -- `test_solver.py` checks
+`fast_search` against `reference_solver` and `test_reference_solver.py` checks
+that against an exhaustive minimax, and collapsing the layers would hide a
+change of convention that moved both ends at once.
 
 ## The card space
 
@@ -55,7 +64,6 @@ SAME_COLOUR = (SPADES, HEARTS, DIAMONDS, CLUBS)
 
 R9, RT, RJ, RQ, RK, RA = 0, 1, 2, 3, 4, 5
 
-HAND_SIZE = 5
 TRICKS = 5
 NEEDED = 3
 MARCH = 2

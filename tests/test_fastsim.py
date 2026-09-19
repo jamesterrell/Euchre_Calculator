@@ -207,6 +207,47 @@ class TestAuction(unittest.TestCase):
                                      % (dealer, caller, alone))
 
 
+class TestDealing(unittest.TestCase):
+    """`deal_around`: the pinned cards stay pinned, and none go missing."""
+
+    def test_every_card_is_somewhere_exactly_once(self):
+        """
+        `dealer.py` shipped a card-losing bug twice, which is why `game.Deal`
+        checks this rather than assuming it. Nothing inside the compiled engine
+        tracks the kitty -- every observation derives how deep it is -- so this
+        is where the arithmetic gets asserted.
+        """
+        rng = np.zeros(1, dtype=np.int64)
+        hands = np.zeros(4, dtype=np.int64)
+        pin = to_mask(r.parse_hand("JS AS 9H 9D TC"))
+        up = card_id(r.parse_card("9S"))
+        for i in range(200):
+            F.seed_stream(rng, i)
+            turned, kitty = F.deal_around(pin, 2, up, 0, rng, hands)
+            self.assertEqual(turned, up)
+            self.assertEqual(int(hands[2]), pin)
+            seen = kitty | (1 << turned)
+            for seat in range(4):
+                self.assertEqual(F.popcount(int(hands[seat])), 5)
+                self.assertEqual(int(hands[seat]) & seen, 0)
+                seen |= int(hands[seat])
+            self.assertEqual(seen, (1 << 24) - 1)
+
+    def test_an_unpinned_up_card_is_dealt_too(self):
+        rng = np.zeros(1, dtype=np.int64)
+        hands = np.zeros(4, dtype=np.int64)
+        turned_up = set()
+        for i in range(60):
+            F.seed_stream(rng, i)
+            turned, kitty = F.deal_around(0, 0, -1, 3, rng, hands)
+            turned_up.add(turned)
+            seen = kitty | (1 << turned)
+            for seat in range(4):
+                seen |= int(hands[seat])
+            self.assertEqual(seen, (1 << 24) - 1)
+        self.assertGreater(len(turned_up), 5, "the up-card never moved")
+
+
 class TestInference(unittest.TestCase):
     """What a seat can work out, and the worlds that are consistent with it."""
 

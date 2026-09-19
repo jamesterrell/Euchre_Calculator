@@ -107,6 +107,24 @@ deal by deal and cannot: `random.Random` does not exist inside njit, so the
 compiled engine carries its own splitmix64 and imagines different layouts. What
 matches is the distribution, which is the only thing this script reports.
 
+A second check on a question that exercises far more of the code -- the whole
+auction walked rather than a pinned bid, so every seat bids, round two runs,
+loners are on the table and hands get passed in:
+
+    `JS AS 9H 9D TC`, `9S` up, seat 0, dealer 3, eleven workers
+
+    engine   deals    per deal    EV to your team    you called   euchred
+    python    1,500   0.2615 s    -0.445 +/- 0.078   70.3%        52.1%
+    fast     20,000   0.0061 s    -0.487 +/- 0.021   70.2%        52.2%
+
+43x here rather than 74x, because this hand spends its time bidding -- 349
+sampled worlds a deal against 50 -- and bidding is the part that shares least
+through the transposition table. The two means differ by 0.042 against a
+combined interval of 0.081, and the auction profiles line up to a fraction of
+a point: partner calls 4.7% and 4.8%, opponents 25.0% and 24.8%, spades named
+88.0% and 86.6%. The compiled engine also passes 28 of 20,000 deals in, which
+is the 0.2% rate CLAUDE.md had to amend a 0-of-60 claim down to.
+
 The old cost table, which is what `--engine python` still runs at:
 
     deals   eval sims   epsilon   serial        10 workers

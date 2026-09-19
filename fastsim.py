@@ -1294,8 +1294,11 @@ def play_one_deal(pin_hand, pin_seat, pin_up, dealer,
     `pimc_bid`, `pimc_discard` or `pimc_play`.
     """
     hands = np.zeros(PLAYERS, dtype=np.int64)
-    up_card, buried = deal_around(pin_hand, pin_seat, pin_up, dealer,
-                                  rngs[PLAYERS], hands)
+    # The kitty is not tracked from here on. Nobody sees it, nobody plays it,
+    # and every observation derives how deep it is from card conservation
+    # rather than from being told -- `obs_setup`.
+    up_card, _ = deal_around(pin_hand, pin_seat, pin_up, dealer,
+                             rngs[PLAYERS], hands)
 
     opt_act = np.zeros(MAX_OPTIONS, dtype=np.int64)
     opt_suit = np.zeros(MAX_OPTIONS, dtype=np.int64)
@@ -1395,7 +1398,6 @@ def play_one_deal(pin_hand, pin_seat, pin_up, dealer,
                                    min_worlds, rngs[dealer], tt, ttm,
                                    nodes, stk)
         hands[dealer] = held & ~(np.int64(1) << discard)
-        buried |= np.int64(1) << discard
 
     up_state = PICKED_UP if ordered else TURNED_DOWN
     width = 3 if alone == 1 else 4
