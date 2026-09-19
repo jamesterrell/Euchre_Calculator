@@ -938,13 +938,13 @@ Euchre: what is this hand worth at a table that cannot see it?
 
   PIMC sim (nobody can see your hand)
     deals you ordered              10000 of 10000 (100.0%)
-    EV given you ordered           -0.671 +/- 0.031 points per deal
-    your team euchred              5759 of 10000 (57.6%)
+    EV given you ordered           -0.668 +/- 0.030 points per deal
+    your team euchred              5722 of 10000 (57.2%)
     trump called                   spades 10000
 ```
 
 **Ordering it up loses two thirds of a point a deal, and you are euchred on
-57.6% of them.**
+57.2% of them.**
 
 ### Why price a hand like this
 
@@ -959,7 +959,7 @@ Three things follow.
 **A rule-driven sim measures its rules, not the hand.** If the seats follow
 conventions, the number that comes out is the value of those conventions on this
 hand. Change the leading rule and the answer moves. You cannot tell whether the
-hand is worth `-0.671` or whether your discard rule is.
+hand is worth `-0.668` or whether your discard rule is.
 
 **Errors from rules accumulate rather than cancel.** A deal is twenty card
 decisions. Random noise averages away across ten thousand deals; a rule that is
@@ -975,23 +975,45 @@ playing the situation out thousands of times and counting what scores best.
 
 ### What the run costs
 
-Ten thousand deals across six processes: **41 minutes**, 0.249 seconds a deal,
-about **34 million complete Euchre hands solved**.
+Ten thousand deals on ten threads: **17 seconds**.
 
-Measured over thirty deals of this sweep, on one core:
+It was 41 minutes. Nothing about the model changed -- same sampling, same
+budgets, same stopping rule, and the number it prints is the same number, which
+is how the rewrite was checked. What changed is that a deal no longer touches
+Python. The solver became bitboards over a card space laid out so that trump is
+a position rather than a comparison, and the auction, the sampling and the play
+were compiled with it.
 
-```
-  solved hands per deal   mean 3401   median 3245   min 2313   max 4531
-  seconds per deal        1.020
-```
+Most of the speed is four statements about Euchre, each of which lets the
+search skip work without guessing:
 
-The depth is the reason. Each deal runs an auction and five tricks; each
-decision is settled by imagining 132 layouts for a card, 231 for a bid, 266 for
-a discard; each imagined layout is a full Euchre hand solved to the end.
+- **Cards a hand cannot tell apart are searched once.** Holding the nine and
+  ten of a suit with nothing between them still in play, it does not matter
+  which you play; the two lead to the same position by any other name.
+- **Only the order of the cards still in play matters.** Once the jack is
+  gone, a ten and a queen are adjacent. Compress every suit that way and deals
+  that share no card at all turn out to be the same position, so one answer
+  serves both.
+- **Seats can be rotated** so the leader is always seat 0, which folds four
+  positions into one.
+- **The three non-trump suits never interact**, so they can be sorted into a
+  fixed order, folding up to six more into one.
+
+All four are proved in `notes/equivalence.md`, because a shortcut in a solver
+that is wrong once in ten thousand times is worse than no shortcut at all.
+On top of them the search knows that a Euchre hand is worth one of three
+numbers and stops as soon as the tricks already taken have ruled the others
+out.
+
+The depth is what made it expensive in the first place. Each deal runs an
+auction and five tricks; each decision is settled by imagining 132 layouts for
+a card, 231 for a bid, 266 for a discard; each imagined layout is a full Euchre
+hand solved to the end. That is still 450 complete hands and 900
+part-played ones solved per deal, and about 140,000 positions looked at.
 
 Only the deal count narrows the interval, which is roughly `4/sqrt(deals)`.
-Halving `+/- 0.031` takes 40,000 deals, close to three hours. The per-decision
-counts move the answer instead of narrowing it, and were measured as the point
-where a decision stops changing its mind.
+Halving `+/- 0.030` takes 40,000 deals -- about a minute now, rather than three
+hours. The per-decision counts move the answer instead of narrowing it, and
+were measured as the point where a decision stops changing its mind.
 
 ---

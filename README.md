@@ -193,11 +193,11 @@ order that up without a second thought. Pinned and priced over 10,000 deals:
 ```
   PIMC sim (nobody can see your hand)
     deals you ordered              10000 of 10000 (100.0%)
-    EV given you ordered           -0.671 +/- 0.031 points per deal
-    your team euchred              5759 of 10000 (57.6%)
+    EV given you ordered           -0.668 +/- 0.030 points per deal
+    your team euchred              5722 of 10000 (57.2%)
 ```
 
-**Ordering it up loses two thirds of a point a deal and is euchred 57.6% of the
+**Ordering it up loses two thirds of a point a deal and is euchred 57.2% of the
 time.** Two of the top three trump is not a hand.
 
 Two things to know about reading that number. Only `--deals` narrows the
@@ -207,11 +207,21 @@ bids for itself, so the mean mixes the deals it called with the deals somebody
 else called first -- `--assume order` pins the opening bid and conditions on it,
 which is why the run above reports 100%.
 
-Cost: 10,000 deals across six processes took 41 minutes, about 0.25 s a deal and
-some 34 million complete Euchre hands solved. What keeps that finite is
-`--epsilon`, an indifference band that stops sampling an option once it
-provably cannot catch the leader, or cannot matter if it does. `CLAUDE.md` has
-what the band costs and what it changes.
+Cost: **17 seconds** for those 10,000 deals on ten threads -- 4.5 million
+complete Euchre hands and 9 million part-played ones solved inside them, and
+1.4 billion positions looked at. It took 41 minutes until the engine
+was compiled -- `bitcore.py` is the solver as bitboards over a card space where
+trump is a position rather than a comparison, and `fastsim.py` is everything
+above it compiled too, so a deal never touches Python. Most of the gain is four
+statements about Euchre that let the search skip work without guessing: cards a
+hand cannot tell apart are searched once, positions are compressed until only
+the *order* of the cards still in play survives, seats are rotated onto the
+leader, and the three plain suits are sorted into one. `notes/equivalence.md`
+proves all four, and `--engine python` still runs the old path, which is the
+readable one. The other thing keeping the count finite is `--epsilon`, an
+indifference band that stops sampling an option once it provably cannot catch
+the leader, or cannot matter if it does. `CLAUDE.md` has what the band costs
+and what it changes.
 
 ## Installation
 
@@ -329,6 +339,8 @@ functions compile on first call in a fresh process, about 15 s.
 ├── dealer.py                 # Card dealing and hand management
 ├── n_game_sim.py             # Batch hand generation
 ├── fast_search.py            # The solver: depth-first alpha-beta
+├── bitcore.py                # The same solver as bitboards, ~95x faster
+├── fastsim.py                # The whole sweep compiled: deal, bid, play
 ├── reference_solver.py       # Independent pure-Python solver, used by tests
 ├── observation.py            # What one seat knows; sampling worlds from it
 ├── table.py                  # The referee: play a deal out with four players
@@ -338,7 +350,7 @@ functions compile on first call in a fresh process, about 15 s.
 ├── hand_ev.py                # What one pinned hand is worth, played out
 ├── interface.ipynb           # One worked example, notebook form
 ├── docs/writeup.md           # The engine explained for Euchre players
-├── notes/                    # Measurements: settle counts, discards, thresholds
+├── notes/                    # Measurements, and the proofs behind bitcore
 ├── tests/                    # Test suite
 └── archive/                  # Superseded implementations, kept for reference
 ```
