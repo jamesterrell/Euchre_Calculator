@@ -515,6 +515,26 @@ def tt_bits_for(deals: int) -> int:
     return bits
 
 
+def compiled_already() -> bool:
+    """
+    Is the compiled engine's on-disk cache warm, or is this run paying for it?
+
+    A cold run compiles for about eighty seconds before it plays a single
+    deal, which looks like a hang rather than like a build. Cheap to check and
+    worth saying out loud -- and a false answer either way costs nothing but
+    the line.
+    """
+    import os
+
+    cache = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "__pycache__")
+    try:
+        return any(name.startswith("fastsim.") and name.endswith(".nbi")
+                   for name in os.listdir(cache))
+    except OSError:
+        return False
+
+
 def _card_id(card: r.Card) -> int:
     """A natural card as `fastsim` numbers it: suit * 6 + rank."""
     return card.suit * 6 + (card.rank - r.NINE)
@@ -939,6 +959,9 @@ def describe(setup: Setup, args):
         print("  %-30s compiled, %d thread%s, %d MB transposition table"
               % ("engine", args.workers, "" if args.workers == 1 else "s",
                  (1 << bits) * 8 // 10 ** 6))
+        if not compiled_already():
+            print("  %-30s %s" % ("", "first run since an edit -- about 80s "
+                                      "of compiling before the first deal"))
     else:
         print("  %-30s python, %d process%s"
               % ("engine", args.workers, "" if args.workers == 1 else "es"))
