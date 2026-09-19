@@ -29,7 +29,7 @@ Tests. The unit suite is stdlib `unittest`, so it needs nothing beyond numpy
 and numba:
 
 ```bash
-python -m unittest discover               # whole suite, 399 tests, ~110s
+python -m unittest discover               # whole suite, 425 tests, ~140s
 python -m unittest tests.test_solver      # one module
 python -m unittest tests.test_solver.TestLeftBower -v
 python tests/test_solver.py               # or run a file directly
@@ -93,7 +93,16 @@ python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 2000 --player-eval-sims 50
 python hand_ev.py "JS AS 9H 9D TC" --up 9S --both --deals 500
 python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 5000 --workers 8
 python hand_ev.py "JS AS 9H 9D TC" --up 9S --assume order    # if I order it
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --engine python   # the old path
 ```
+
+**`hand_ev.py` runs compiled by default** -- `fastsim.py` over `bitcore.py`,
+which is this repo's model with every layer above the solver rewritten as
+integers and njit. Ten thousand deals at the default budgets now take **about
+fifty seconds** on ten threads, against about twenty-seven minutes on the
+Python path. See "The compiled engine" below for what it is and what holds the
+two to the same answers; `--engine python` is still there and is what the unit
+suite drives.
 
 `pimc_example.py` is the one to read first. It plays a single pinned deal and
 prints what every seat could see, what each of its options was worth, and which
@@ -119,8 +128,11 @@ so hand generation is now roughly half the cost of a sweep. 10,000 hands is
 about 10 s end to end. Sampling error dominates search error -- there is no
 search error -- so push the sample count when you want a tighter interval.
 
-The solver's `@njit` functions compile on first call in a fresh process, ~15 s.
-The archived pipeline's warmup is ~197 s; budget for it if you run a comparison.
+`fast_search`'s `@njit` functions compile on first call in a fresh process,
+~15 s, and cannot be cached away while `_search` recurses -- see "Testing".
+`bitcore` and `fastsim` do cache, so they pay ~70 s once after an edit and
+start in a second or two every time after that. The archived pipeline's warmup
+is ~197 s; budget for it if you run a comparison.
 
 ## Architecture
 
@@ -148,6 +160,9 @@ bidding.py         the auction, solved in God Mode
 dealer.py          Dealer dataclass: shuffle, stack specific cards, deal 4x5
 n_game_sim.py      generate_hands() -> (n_games, 4, 5, 2) batch of dealt hands
 fast_search.py     the solver: depth-first alpha-beta over the game tree
+bitcore.py         the same solver as bitboards, with the exact reductions in
+                   notes/equivalence.md -- ~300x faster and the same answers
+fastsim.py         the whole sweep compiled: deal, auction, sampling, play
 reference_solver.py independent pure-Python solver, used only by the tests
 observation.py     one seat's information set, and sampling worlds from it
                    (`iter_worlds` is the lazy form -- see "stopping early")
@@ -168,6 +183,8 @@ tests/             the suite, see "Testing" below
   test_race.py       sequential elimination: the epsilon stopping rule
   test_axioms.py     the proposed axioms; pins the one that turned out false
   test_fast_search.py randomised regression sweep for fast_search
+  test_bitcore.py    bitcore against fast_search: whole deals and positions
+  test_fastsim.py    the compiled sweep against the readable one
 archive/           superseded code, see "Archived approaches" below
 ```
 
@@ -316,10 +333,27 @@ is the only reason the expensive test is there. Note that the two tests anchor
 to `play_one(setup, i)` rather than to each other -- comparing a parallel run
 against a serial one only catches a scramble if exactly one of them scrambled.
 
-**Do not add `cache=True`** to the solver's `@njit` functions. Numba 0.60
+**Do not add `cache=True`** to `fast_search`'s `@njit` functions. Numba 0.60
 segfaults (SIGSEGV, reliably) when loading a cached *recursive* njit function,
-so the 15 s warmup cannot currently be cached away. Making `_search` iterative
-with an explicit stack would unblock that if the warmup ever matters.
+so its 15 s warmup cannot be cached away while `_search` recurses. Verified
+again during the `bitcore` work: caching everything in that module and then
+running a second process segfaults in about a second, and it still does when
+only the two recursive functions are left uncached, because their cached
+callers pull them in.
+
+**`bitcore` took the other option and it was worth it.** Its `_search` is the
+same alpha-beta written flat, with an explicit twenty-ply stack, which is what
+lets `cache=True` go on every function in `bitcore.py` and `fastsim.py`. The
+sweep then starts in a second or two instead of paying seventy seconds of
+compilation in every process. Node counts are identical to the recursive
+version, which is how the rewrite was checked; the flat one is about 4% slower
+per node, and that was never the point.
+
+Two things follow for anyone editing it. `_search` may not call itself, and
+adding a recursive helper anywhere in either module brings the segfault back
+for the whole module. And the first run after editing either file recompiles
+what changed -- about seventy seconds -- so a timing measured immediately
+after an edit is measuring the compiler.
 
 ## Playing without God Mode
 
@@ -799,12 +833,19 @@ the sweep is priced by `deals` and `epsilon` alone:
 | 10,000 | 10,000    | 0.15    | ~4 hours    | ~52 minutes |
 | 10,000 | 10,000    | none    | ~45 days    | ~10 days    |
 
-The first row is what a bare `hand_ev.py --deals 10000 --workers 10` costs now:
-132/231/266 eval sims at `epsilon 0.05`, measured at 0.205 s/deal. The rows
-below it are the earlier runs at 10,000 eval sims, kept because they are what
-the epsilon comparison above was measured on. Pinning the opening bid with
-`--assume order` is faster again -- 0.103 s/deal, ~17 minutes -- since an order
-from eldest ends the auction and the other three seats never bid.
+**That table is `--engine python`.** The default is now the compiled engine,
+and the first row of it is **47 seconds** rather than 34 minutes -- see "The
+compiled engine" below, and `notes/equivalence.md` for why the reductions it
+rests on are exact rather than approximate. Everything in this section about
+what the sweep *means* is unchanged; only its price is.
+
+The first row is what a bare `hand_ev.py --deals 10000 --workers 10` costs on
+the Python path: 132/231/266 eval sims at `epsilon 0.05`, measured at 0.205
+s/deal. The rows below it are the earlier runs at 10,000 eval sims, kept
+because they are what the epsilon comparison above was measured on. Pinning the
+opening bid with `--assume order` is faster again -- 0.103 s/deal, ~17 minutes
+-- since an order from eldest ends the auction and the other three seats never
+bid.
 
 The worker column is measured at 900 deals, not extrapolated from the core
 count: 10 workers ran exact-at-400 at 0.95 s/deal against 4.35 s/deal serial,
@@ -828,6 +869,196 @@ attempt to compare a parallel run against a serial one record by record.
 difference. Paired because both tables play identical layouts, so deal luck
 cancels deal by deal rather than statistically, and a few hundred deals separate
 the two where a few thousand would be needed unpaired.
+
+## The compiled engine
+
+`hand_ev.py`'s question -- what is this hand worth to a table that cannot see
+it -- is answered by playing one deal out tens of thousands of times, and the
+model that plays it is spread over `table.py`, `players.py`, `observation.py`
+and `bidding.py`. That is the right shape to read and the wrong shape to run:
+profiled over 30 deals, **half the time was Python plumbing** -- building
+`World` tuples, `Observation` dataclasses and `(4, 5, 2)` arrays -- and half
+was the search those objects exist to feed.
+
+Two modules replace it. Both are exact: they compute the same numbers, and the
+speed comes from theorems and from representation, not from approximation.
+
+```
+bitcore.py   the solver as 24-bit boards over a trump-canonical card space
+fastsim.py   the sweep: deal, auction, sampling, decisions, play -- all njit
+```
+
+Measured on the hand this was built for -- `TH AS AD KD JD`, `9H` up, seat 2,
+dealer 0, `--assume order`, default budgets, `--epsilon 0.05`, ten workers:
+
+| engine | deals  | wall     | per deal  | EV over all deals |
+| ------ | ------ | -------- | --------- | ----------------- |
+| python |  4,000 | 10.9 min | 0.163 s   | +0.926 +/- 0.036  |
+| fast   | 10,000 | 47 s     | 0.0047 s  | +0.912 +/- 0.023  |
+
+**33x a deal, and the same answer**: the means differ by 0.014 against a
+combined interval of 0.043, the calling rates are 88.3% and 88.8%, and the
+euchre rates 11.4% and 12.0%. They do not agree *deal by deal* and cannot --
+`random.Random` does not exist inside njit, so the compiled engine carries its
+own splitmix64 and imagines different layouts. Only the distribution is
+comparable, which is the only thing the script reports anyway.
+
+### The card space
+
+A card is `suit * 6 + (rank - 9)`, a set of cards is a 24-bit mask, and inside
+a solve the bits are permuted into a layout that makes trump positional:
+
+```
+bits  0..6   trump:        9 T Q K A  left-bower  right-bower
+bits  7..11  same colour:  9 T Q K A            (its jack is trump)
+bits 12..17  plain A:      9 T J Q K A
+bits 18..23  plain B:      9 T J Q K A
+```
+
+Strength is the bit position inside its field, so "higher card" is "higher
+bit", and `rotation.py`'s vector arithmetic becomes `CANON[trump]`, a lookup.
+Following suit is one mask. Playing a card is one xor, and un-playing it is the
+same xor -- which is where `fast_search`'s swap-and-restore, and the trick
+buffer that went with it, stop existing.
+
+### Four exact reductions
+
+`notes/equivalence.md` states and proves them. In short:
+
+- **Theorem 1, equivalent cards.** Two cards in *one hand*, same effective
+  suit, with no live card between them, lead to positions of equal value. So
+  `_moves` returns one card per run instead of every legal card, and
+  `_moves_at` -- which owes a number for each -- fills the rest in from the
+  representative rather than searching them. The same-hand condition is
+  load-bearing: the corresponding claim for two cards in *different* hands is
+  false, because those two can meet in one trick and swapping them swaps who
+  wins it.
+- **Theorem 2, rank compression.** Only the order of the live cards matters, so
+  each suit's live cards are renumbered 0, 1, 2, ... Positions that differ only
+  in which dead cards lie between the live ones become one table entry -- which
+  is why the table is worth sharing between *different deals* of a sweep and
+  not only between branches of one search.
+- **Theorem 3, seat rotation.** Rotate so the leader is seat 0. Four positions
+  fold into one and the leader leaves the key.
+- **Theorem 4, plain suits.** The three non-trump suits never interact, so they
+  are sorted into a canonical order. Up to six more positions fold into one.
+
+Plus **Lemma 0**: a trick in progress is carried as `(led suit, the card
+winning it, who played it, how many have played)` and not as a list of cards. A
+card that has already lost the trick can never be compared against again, so it
+is neither part of the state nor part of the live set -- which makes Theorem
+1's runs longer than they look.
+
+Measured effect of all of it on `bitcore` against `fast_search`: same value on
+every hand tested, **~300x faster** on whole deals and part-played positions
+alike, from a cold table.
+
+### The transposition table
+
+One int64 per entry, holding the whole position *and* its value:
+
+```
+bits  0..31  who holds each live card, two bits apiece
+bits 32..40  how many live cards the first three suits hold
+bits 41..43  the trick on the table, 1..4
+bit  44      alone
+bits 45..47  tricks the calling team has taken
+bit  48      which side of the rotated table called
+bits 49..55  bound flag, value, and how big the subtree was
+```
+
+Three consequences, and each of them is why it is packed that way.
+
+**It is exact.** The key is compared in full on a hit, so there are no hash
+collisions to reason about -- unlike the usual Zobrist-hash table, where a
+false hit is merely improbable.
+
+**It is shared by every thread with no lock.** An aligned 64-bit load or store
+is atomic, so a reader sees some writer's whole entry or another writer's whole
+entry, never half of each. Two threads racing for a slot is not a correctness
+question, only a question of whose true answer stays. This is the reason the
+owner of each card is stored as a 2-bit digit rather than as three 24-bit
+masks: the digits fit in 32 bits where the masks need 48, and 32 is what leaves
+room for the value in the same word.
+
+**It is never cleared.** An entry is keyed by everything its value depends on,
+so it is as true for the next deal as for the one that wrote it.
+`tests/test_bitcore.py` pins that directly -- a cold table must give the same
+answers as a warm one.
+
+Two design choices were measured rather than assumed:
+
+- **Eight slots to a bucket, one bucket to a cache line.** Direct-mapped, a
+  trick-three entry evicts a trick-one entry whenever it happens to hash next
+  to it, and the trick-one entry stood for a subtree a hundred times the size.
+  Looking at all eight costs the one cache miss that looking at one costs, and
+  the victim is the entry with the least under it. On the 10,000-deal run this
+  took 91 s to 47 s at the same table size -- the single biggest change after
+  the search itself.
+- **Size matters more than anything else left.** Same run: 2^24 slots (134 MB)
+  91 s, 2^26 (537 MB) 47 s, 2^27 (1.1 GB) 37 s. `hand_ev.py` scales the default
+  with the sweep and stops at 2^26; `--tt-bits` goes either way.
+
+### It caches, and that is why `_search` is flat
+
+`bitcore._search` is an explicit twenty-ply stack rather than a recursion, and
+the reason is entirely about startup: numba 0.60 segfaults loading a cached
+*recursive* njit function, so a recursive search means seventy seconds of
+compilation in every process that imports it. Flat, `cache=True` goes on
+everything and a sweep starts in a second or two. Node counts are identical to
+the recursive version -- which is how the rewrite was checked -- and the flat
+one costs about 4% more per node, which was never the point.
+
+So: **no function in `bitcore.py` or `fastsim.py` may recurse.** One that does
+brings the segfault back for its whole module. And the first run after editing
+either file recompiles what changed, about seventy seconds, so a timing taken
+immediately after an edit is a timing of the compiler.
+
+### What holds the two implementations together
+
+`tests/test_fastsim.py`, from the bottom up:
+
+- the parts with no randomness in them are checked for **exact equality**: the
+  compiled auction against `bidding.solve_bidding` (value *and* contract, with
+  stick-the-dealer and loners on), `order_up_value` against `bidding.order_up`,
+  the trick rules against `table.py`, and `TIE_RANK` against `table.card_order`
+  -- two runs that disagree on the tie-break disagree on the card played;
+- what a seat can infer is checked against `observation._draw_setup`: same
+  unseen pool, same room per slot, same voids, same up-card inference, over
+  hundreds of random mid-hand states;
+- the **decisions** are checked by handing both implementations the same
+  sampled worlds and requiring the same card. `fastsim.pimc_play` runs against
+  a Python pipeline of `fastsim.draw_world` into `fast_search.position_moves`
+  into `players._race` into `players._pick`, off the same seeded stream. That
+  pins the values, the stopping rule and its constants, and the tie-break
+  together -- a player that differed anywhere in there would look like nothing
+  worse than a slightly different player, which is exactly the failure worth
+  catching;
+- every world the sampler draws is checked to be one the seat could be in:
+  the observer's own hand is real, the counts are right, nobody is dealt a suit
+  they showed out of, and every card is somewhere exactly once;
+- and the sweep keeps the invariant that made the process pool trustworthy --
+  **one thread and seven produce the same records**, not merely the same mean.
+
+`tests/test_bitcore.py` covers the search underneath it: whole deals four-handed
+and alone, and positions reached by walking a random legal line partway through
+a hand, all against `fast_search`. The layering is the same one
+`test_solver.py` has: `bitcore` is checked against `fast_search`, which is
+checked against `reference_solver`, which is checked against the no-pruning
+minimax in `euchre_testkit`. Do not collapse it by checking `bitcore` against
+the oracle and calling it done -- what that misses is a change of convention
+that moves both ends at once.
+
+### What the compiled engine does not do
+
+`--prune-top-trumps` is Python-only. It rests on an axiom that turned out to be
+false (see `notes/discard_dominance.md`), it buys 1.09x, and the compiled
+engine is already three orders of magnitude past what that was worth;
+`hand_ev.py` rejects the combination rather than quietly ignoring it.
+
+`pimc_sweep.py` and `pimc_example.py` are untouched and still run on
+`table.py` and `players.py`. `pimc_example.py` narrates a deal decision by
+decision, which is a thing the compiled engine cannot do and should not try to.
 
 ## Archived approaches
 

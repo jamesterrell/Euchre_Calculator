@@ -18,6 +18,7 @@ comes back is what happened at the table rather than what was available at it.
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 2000 --player-eval-sims 50
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --both --deals 500
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 5000 --workers 8
+    python hand_ev.py "JS AS 9H 9D TC" --up 9S --engine python   # the old path
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --deals 10000         --player-eval-sims 10000 --epsilon 0.4 --workers 10
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --epsilon none   # exact, slow
     python hand_ev.py "JS AS 9H 9D TC" --up 9S --assume order    # if I order it
@@ -80,7 +81,33 @@ same rng, the same answers -- and so is the old linear cost, 0.39 s per deal
 per 10 sims.
 
 So the sweep is priced by `deals` and `epsilon`, and `--player-eval-sims` is
-close to free above ~800:
+close to free above ~800.
+
+**And then it was compiled.** `--engine fast` (the default) plays the deals in
+`fastsim.py`, which is this file's model with `table.py`, `players.py`,
+`observation.py` and `bidding.py` rewritten as integers and njit, over the
+bitboard solver in `bitcore.py`. It is not a different model and not an
+approximation -- the sampling, the decisions, the pass models, the stopping
+rule and the tie-breaks are the ones `players.py` documents, and
+`tests/test_fastsim.py` holds the two implementations to the same answers.
+`--engine python` is the old path, kept because it is the readable one and the
+one the unit suite drives.
+
+Measured on `TH AS AD KD JD` with `9H` up, seat 2, dealer 0, `--assume order`,
+today's default budgets at `--epsilon 0.05`, ten workers:
+
+    engine   deals    wall       per deal   EV over all deals
+    python   4,000    10.9 min   0.163 s    +0.926 +/- 0.036
+    fast    10,000    47 s       0.0047 s   +0.912 +/- 0.023
+
+**33x per deal, and the same answer** -- the two means differ by 0.014 against
+a combined interval of 0.043, and the two engines call the hand at 88.3% and
+88.8%. They do not agree deal by deal and cannot: `random.Random` does not
+exist inside njit, so the compiled engine carries its own splitmix64 and
+imagines different layouts. What matches is the distribution, which is the only
+thing this script reports.
+
+The old cost table, which is what `--engine python` still runs at:
 
     deals   eval sims   epsilon   serial        10 workers
    10,000     default      0.05   ~2.8 hours    ~34 minutes
@@ -89,9 +116,10 @@ close to free above ~800:
    10,000      10,000      0.15   ~4 hours      ~52 minutes
    10,000      10,000      none   ~45 days      ~10 days
 
-The first row is a bare run at today's defaults -- 132/231/266 eval sims at
-epsilon 0.05, measured at 0.205 s/deal. The rest are the earlier runs at 10,000
-eval sims, which is what the epsilon comparison below was measured on.
+**The first run after a checkout or an edit compiles**, which takes about 70
+seconds and is then cached on disk for every run after it. The 47 seconds above
+is a warm run; the cold one is about two minutes. Editing `bitcore.py` or
+`fastsim.py` invalidates the cache for the functions that changed.
 
 The band is not free, and what it costs was measured rather than assumed: over
 900 paired deals at 400 eval sims, `--epsilon 0.15` moved the answer by
@@ -106,11 +134,19 @@ told apart from a 12,800-sample one *at that band*, which is not the same claim
 as the decisions having settled. Narrow the band if the question is whether
 they do.
 
-`--workers` spreads deals over processes; each pays the ~20 s JIT warmup once,
-and the measured speedup is 4.6x on a 12-thread machine -- 0.95 s/deal against
-4.35 s/deal serial over 900 deals -- rather than the 10x the core count
-suggests. Results do not depend on the worker count -- every deal seeds itself
-from its own index -- so a parallel run and a serial one give the same number.
+`--workers` is threads under the compiled engine and processes under the Python
+one. Neither scales with the core count: 10 threads run about 6x a single one
+on a 12-thread machine, and the process pool measured 4.6x. Results do not
+depend on the worker count -- every deal seeds itself from its own index -- so
+a parallel run and a serial one give the same number, which is the cheapest
+available check that the parallel path is sound.
+
+`--tt-bits` sizes the compiled engine's transposition table, which every thread
+shares and nothing ever clears. It is the single biggest thing between this
+script and its old runtime, and it wants to be big: on the run above, 2^24
+slots (134 MB) takes 91 s, 2^26 (537 MB) takes 47 s and 2^27 (1.1 GB) takes
+37 s. The default scales with the sweep and stops at 2^26, because half a
+gigabyte is already a lot to take without being asked.
 
 `--both` also solves each of the same deals in God Mode and reports the paired
 difference. Paired, because the two tables play identical layouts: the
@@ -200,6 +236,10 @@ class Setup:
     # Last, and defaulted, so the field order the tests build a Setup with
     # keeps working. None means exact averaging -- see players._race.
     epsilon: Optional[float] = None
+    # Which implementation plays the deals out. They are the same model; see
+    # `run_fast`. "python" is the readable one and the one the unit suite
+    # drives; "fast" is the compiled one, and is ~200x quicker.
+    engine: str = "fast"
 
     def deal(self, i: int) -> game.Deal:
         """Deal `i` of the sweep. Derived from `i` alone, so workers agree."""
@@ -356,6 +396,165 @@ def run(setup: Setup, deals: int, both: bool = False, workers: int = 1,
             [c for _, _, c in out if c is not None])
 
 
+
+# ---------------------------------------------------------- the fast engine
+#
+# `fastsim` is this file's whole sweep compiled -- deal, auction, sampling,
+# search and all. It is a second implementation of the same model rather than a
+# different one, and `tests/test_fastsim.py` is what holds the two together:
+# the compiled solver against `fast_search`, the compiled auction against
+# `bidding.solve_bidding`, the compiled inference against `observation.py`, and
+# the whole thing against the Python table with an error bar.
+#
+# The two do **not** agree deal by deal. They draw their worlds from different
+# random number generators -- `random.Random` does not exist inside njit -- so
+# deal 7 sees different imagined layouts under each, and lands where it lands.
+# What matches is the distribution, which is the only thing the sweep reports.
+
+FAST = "fast"
+PYTHON = "python"
+ENGINES = (FAST, PYTHON)
+
+# How big a transposition table to give the compiled engine, by sweep size.
+# It is shared by every thread and never cleared, so it wants to be roughly as
+# big as the number of distinct positions the whole sweep will look at; past
+# that it is only paying for cache misses, and short of it the sweep pays by
+# re-searching. Measured on `TH AS AD KD JD` with `9H` up, 10,000 deals at ten
+# threads: 2^24 slots (134 MB) runs it in 91s, 2^26 (537 MB) in 47s and 2^27
+# (1.1 GB) in 37s. The cap is 2^26 because half a gigabyte is already a lot to
+# take without being asked; `--tt-bits` goes either way from here.
+TT_MIN_BITS = 22
+TT_MAX_BITS = 26
+TT_SLOTS_PER_DEAL = 16384
+
+# Pieces of work per thread, for load balance. See `run_fast`.
+CHUNKS_PER_THREAD = 4
+
+
+def tt_bits_for(deals: int) -> int:
+    bits = TT_MIN_BITS
+    while bits < TT_MAX_BITS and (1 << bits) < deals * TT_SLOTS_PER_DEAL:
+        bits += 1
+    return bits
+
+
+def _card_id(card: r.Card) -> int:
+    """A natural card as `fastsim` numbers it: suit * 6 + rank."""
+    return card.suit * 6 + (card.rank - r.NINE)
+
+
+def codes(fastsim):
+    """
+    The integers `fastsim` names these by, keyed by the strings this file uses.
+
+    Read off the module rather than written out, because a literal here that
+    drifted from the constant there would not fail -- it would quietly run a
+    different pass model, or condition on a different opening bid, and report
+    the answer to a question nobody asked.
+    """
+    return ({players.PASS_GOD_MODE: fastsim.PASS_GOD,
+             players.PASS_ZERO: fastsim.PASS_ZERO,
+             players.PASS_FLOOR: fastsim.PASS_FLOOR,
+             players.PASS_GUARD: fastsim.PASS_GUARD},
+            {ASSUME_AUCTION: fastsim.ASSUME_AUCTION,
+             ASSUME_ORDER: fastsim.ASSUME_ORDER,
+             ASSUME_ALONE: fastsim.ASSUME_ALONE,
+             ASSUME_PASS: fastsim.ASSUME_PASS})
+
+
+def _from_row(row, setup: Setup, god: bool) -> Record:
+    """One row of the compiled sweep's output array, as a `Record`."""
+    import fastsim
+
+    caller = int(row[fastsim.R_CALLER])
+    if caller < 0:
+        return replace(PASSED_OUT, forced=bool(row[fastsim.R_FORCED]))
+    if god:
+        # `fastsim.solve_bidding` reports net points to team 0, the scale
+        # `bidding` works on; everything below is on the asker's own scale.
+        value = int(row[fastsim.R_VALUE])
+        return Record(value=b.value_to(setup.seat, value), caller=caller,
+                      trump=int(row[fastsim.R_TRUMP]),
+                      alone=bool(row[fastsim.R_ALONE]),
+                      caller_tricks=-1,
+                      caller_score=b.value_to(caller, value))
+    return Record(value=int(row[fastsim.R_VALUE]), caller=caller,
+                  trump=int(row[fastsim.R_TRUMP]),
+                  alone=bool(row[fastsim.R_ALONE]),
+                  caller_tricks=int(row[fastsim.R_TRICKS]),
+                  caller_score=int(row[fastsim.R_SCORE]),
+                  forced=bool(row[fastsim.R_FORCED]))
+
+
+def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
+             progress=None, tt_bits: Optional[int] = None):
+    """
+    The sweep, compiled. Same arguments and same answers as `run`.
+
+    `workers` is threads here rather than processes, and it is also how the
+    deals are split: thread `c` takes every `workers`-th one. The deal is a
+    function of its index, so **the answer does not depend on how many there
+    are** -- the same invariant the process pool had, and the cheapest check
+    that the parallel path is sound.
+
+    Returns `(pimc records, god records, spent)`, where `spent` is the summed
+    per-thread tallies -- nodes searched, and the worlds and solves each kind
+    of decision paid for. `report_spend` prints them; they are the numbers to
+    look at first when a sweep is slower than it should be.
+
+    `prune_discards` is not supported: it is an unproven axiom, it buys 1.09x,
+    and this engine is already three orders of magnitude past what it was
+    worth. Ask for it and you get the Python path.
+    """
+    import numpy as np
+    import numba
+    import fastsim
+
+    threads = max(1, min(int(workers), numba.config.NUMBA_NUM_THREADS))
+    numba.set_num_threads(threads)
+    # More pieces than threads, because deals are not equally expensive: a
+    # hand that gets passed out costs a fraction of one that plays five
+    # tricks, and a thread that draws a run of cheap ones would otherwise
+    # finish early and wait at the block boundary.
+    chunks = threads * CHUNKS_PER_THREAD
+
+    pin = 0
+    for card in setup.hand:
+        pin |= 1 << _card_id(card)
+    up = _card_id(setup.up_card) if setup.up_card is not None else -1
+
+    pass_models, assumptions = codes(fastsim)
+    bits = tt_bits if tt_bits is not None else tt_bits_for(deals)
+    tt = np.zeros(1 << bits, dtype=np.int64)
+    out = np.zeros((deals, fastsim.RECORD), dtype=np.int64)
+    god = np.zeros((deals if both else 1, fastsim.RECORD), dtype=np.int64)
+    counters = np.zeros((chunks, fastsim.COUNTERS), dtype=np.int64)
+
+    # Run in blocks so the progress line has something to say -- the table
+    # carries over between them, which is the point of hoisting it out here.
+    # Each block ends in a barrier, though, so a quiet run does not pay for
+    # one it would never read.
+    block = deals if progress is None else max(chunks, -(-deals // 20))
+    for lo in range(0, deals, block):
+        hi = min(lo + block, deals)
+        fastsim.run_deals(
+            lo, hi, setup.seed, pin, setup.seat, up, setup.dealer,
+            setup.player_eval_sims, setup.bid_eval_sims,
+            setup.discard_eval_sims,
+            0.0 if setup.epsilon is None else float(setup.epsilon),
+            setup.epsilon is not None, players.MIN_WORLDS,
+            pass_models[setup.pass_model], assumptions[setup.assume],
+            1 if setup.let_auction_play else 0,
+            1 if setup.stick else 0, 1 if setup.allow_loners else 0,
+            chunks, tt, out, god, 1 if both else 0, counters)
+        if progress:
+            progress(hi, deals)
+
+    return ([_from_row(out[i], setup, False) for i in range(deals)],
+            [_from_row(god[i], setup, True) for i in range(deals)]
+            if both else [],
+            counters.sum(axis=0))
+
 # ------------------------------------------------------------- reading them
 
 
@@ -429,6 +628,31 @@ def report(name: str, records, setup: Setup):
                  ", ".join("%s %d" % (r.suit_name(s), c)
                            for s, c in trumps.most_common())))
     return mean, half
+
+
+def report_spend(spent, deals):
+    """
+    What the compiled engine spent getting there, per deal.
+
+    Not decoration: these are the four numbers that say where a slow sweep is
+    slow. Worlds are how many layouts a decision imagined before its argmax
+    settled -- well under the budget, which is the stopping rule working --
+    and solves are how many whole deals or positions that cost.
+    """
+    import fastsim
+
+    per = lambda i: spent[i] / max(1, deals)
+    print("\n  what it cost, per deal")
+    print("    %-30s %d" % ("positions searched",
+                            round(per(fastsim.C_NODES))))
+    print("    %-30s %.1f worlds, %.1f solves"
+          % ("bidding", per(fastsim.C_BID_WORLDS),
+             per(fastsim.C_BID_SOLVES)))
+    print("    %-30s %.1f worlds, %.1f solves"
+          % ("the discard", per(fastsim.C_DISCARD_WORLDS),
+             per(fastsim.C_DISCARD_SOLVES)))
+    print("    %-30s %.1f worlds over 20 cards"
+          % ("the play", per(fastsim.C_PLAY_WORLDS)))
 
 
 def paired(pimc, god):
@@ -517,8 +741,21 @@ def parse_args(argv=None):
                         help="also solve each layout in God Mode and report "
                              "the paired difference")
     parser.add_argument("--workers", type=int, default=1,
-                        help="processes to spread deals over; each pays the "
-                             "~15s JIT warmup once")
+                        help="how many deals to play at once. Threads under "
+                             "--engine fast, processes under --engine python, "
+                             "where each also pays the ~15s JIT warmup")
+    parser.add_argument("--engine", default=FAST, choices=ENGINES,
+                        help="which implementation plays the deals. 'fast' "
+                             "(default) is the compiled one in fastsim.py; "
+                             "'python' is table.py and players.py, which is "
+                             "the readable one and about 200x slower")
+    parser.add_argument("--tt-bits", type=int, default=None,
+                        help="log2 of the compiled engine's transposition "
+                             "table, which costs 8 bytes a slot and is shared "
+                             "by every thread. Defaults to roughly one slot "
+                             "per position the sweep will look at, capped at "
+                             "%d (%d MB)" % (TT_MAX_BITS,
+                                             (1 << TT_MAX_BITS) * 8 // 10 ** 6))
     parser.add_argument("--no-loners", action="store_true",
                         help="forbid going alone")
     parser.add_argument("--stick", action="store_true",
@@ -570,6 +807,12 @@ def setup_from(args) -> Setup:
             "auction continuing."
             % (ASSUME_ORDER, ASSUME_ALONE, ASSUME_PASS))
 
+    if args.engine == FAST and args.prune_top_trumps:
+        raise SystemExit(
+            "--prune-top-trumps is only implemented on --engine python. It is "
+            "an unproven axiom worth 1.09x, and the compiled engine is already "
+            "far past what that buys; see notes/discard_dominance.md.")
+
     return Setup(hand=hand, up_card=up_card, seat=args.seat,
                  dealer=args.dealer,
                  player_eval_sims=_budget(args.player_eval_sims, None,
@@ -584,7 +827,7 @@ def setup_from(args) -> Setup:
                  assume=args.assume,
                  let_auction_play=args.let_auction_play,
                  allow_loners=not args.no_loners, stick=args.stick,
-                 seed=args.seed)
+                 seed=args.seed, engine=args.engine)
 
 
 def describe(setup: Setup, args):
@@ -614,8 +857,14 @@ def describe(setup: Setup, args):
                  " whenever the auction reaches you"
                  if setup.let_auction_play
                  else " every deal (auction skipped)"))
-    if args.workers > 1:
-        print("  %-30s %d processes" % ("workers", args.workers))
+    if setup.engine == FAST:
+        bits = args.tt_bits if args.tt_bits is not None             else tt_bits_for(args.deals)
+        print("  %-30s compiled, %d thread%s, %d MB transposition table"
+              % ("engine", args.workers, "" if args.workers == 1 else "s",
+                 (1 << bits) * 8 // 10 ** 6))
+    else:
+        print("  %-30s python, %d process%s"
+              % ("engine", args.workers, "" if args.workers == 1 else "es"))
     print()
 
 
@@ -636,18 +885,31 @@ def main(argv=None):
               % (done, total, elapsed, (total - done) / rate if rate else 0),
               file=sys.stderr)
 
-    pimc, god = run(setup, args.deals, both=args.both, workers=args.workers,
-                    progress=None if args.quiet else progress)
+    spent = None
+    if setup.engine == FAST:
+        pimc, god, spent = run_fast(setup, args.deals, both=args.both,
+                                    workers=args.workers,
+                                    tt_bits=args.tt_bits,
+                                    progress=None if args.quiet else progress)
+    else:
+        pimc, god = run(setup, args.deals, both=args.both,
+                        workers=args.workers,
+                        progress=None if args.quiet else progress)
 
     report("PIMC sim (nobody can see your hand)", pimc, setup)
+    if spent is not None:
+        report_spend(spent, args.deals)
     if args.both:
         print()
         report("God Mode (every seat sees everything)", god, setup)
         paired(pimc, god)
 
     elapsed = time.time() - started
-    print("\n  %.1fs total, %.3fs per deal (the first solve in each process "
-          "pays ~15s of JIT warmup)" % (elapsed, elapsed / max(1, args.deals)))
+    print("\n  %.1fs total, %.4fs per deal%s"
+          % (elapsed, elapsed / max(1, args.deals),
+             "" if setup.engine == FAST
+             else " (the first solve in each process pays ~15s of "
+                  "JIT warmup)"))
     return pimc, god
 
 
