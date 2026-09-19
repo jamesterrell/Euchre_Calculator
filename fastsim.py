@@ -34,10 +34,61 @@ engines draw different worlds, so they do not agree deal by deal, and
 `tests/test_fastsim.py` compares them the way the sweep itself is read --
 distributions, with an error bar.
 """
+import hashlib
+import os
+
 import numpy as np
 from numba import njit, prange
 
 import bitcore
+
+
+def _drop_stale_cache():
+    """
+    Throw this module's compiled cache away when `bitcore.py` has moved.
+
+    numba caches each function against **its own** source and nothing else.
+    Everything here has `bitcore`'s search compiled into it, so editing the
+    solver alone leaves this module's cache in place and quietly keeps running
+    the old one. That is not hypothetical: it hid a 2x improvement to the
+    search for an afternoon, and the only symptom was a change that measured
+    as doing nothing.
+
+    So this module stamps what it was built against and drops its own cache
+    when the stamp moves. Deleting too much costs seventy seconds of
+    recompilation; deleting too little costs a wrong measurement, which is
+    worse.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    cache = os.path.join(here, "__pycache__")
+    if not os.path.isdir(cache):
+        return
+    try:
+        with open(os.path.join(here, "bitcore.py"), "rb") as handle:
+            stamp = hashlib.sha1(handle.read()).hexdigest()
+    except OSError:
+        return
+    mark = os.path.join(cache, "fastsim.dependency")
+    try:
+        with open(mark) as handle:
+            if handle.read().strip() == stamp:
+                return
+    except OSError:
+        pass
+    for name in os.listdir(cache):
+        if name.startswith("fastsim.") and name.endswith((".nbi", ".nbc")):
+            try:
+                os.remove(os.path.join(cache, name))
+            except OSError:
+                pass
+    try:
+        with open(mark, "w") as handle:
+            handle.write(stamp)
+    except OSError:
+        pass
+
+
+_drop_stale_cache()
 from bitcore import (CANON, DECANON, FIELD_MASK, FIELD_OF, PEXT,
                      TRICKS, NEEDED, new_tt)
 
@@ -563,7 +614,7 @@ def prefers(candidate, incumbent, seat):
 # -------------------------------------------------------- God Mode values
 
 
-@njit(inline="always", cache=True)
+@njit(cache=True)
 def play_value(hands, trump, dealer, caller, alone, tt,
                ttm, nodes, stk):
     """
@@ -571,11 +622,26 @@ def play_value(hands, trump, dealer, caller, alone, tt,
 
     Play begins to the dealer's left whoever called, and the solver moves the
     lead on if that seat is the one sitting out a loner.
+
+    Asked as two yes-or-no questions rather than as one open one. A Euchre hand
+    is worth -2, 1 or 2 -- or -2, 1 or 4 alone -- so "is it worth at least 1?"
+    and then "at least 2?" pin it exactly, and each of those runs on a window
+    one point wide, where alpha-beta cuts off almost everywhere. The second
+    question also inherits the first one's bounds out of the transposition
+    table. Same number as one wide search, and measurably fewer nodes.
     """
-    return bitcore.solve_canon(
-        bitcore.to_canon(hands[0], trump), bitcore.to_canon(hands[1], trump),
-        bitcore.to_canon(hands[2], trump), bitcore.to_canon(hands[3], trump),
-        (dealer + 1) & 3, caller, alone, tt, ttm, nodes, stk)
+    h0 = bitcore.to_canon(hands[0], trump)
+    h1 = bitcore.to_canon(hands[1], trump)
+    h2 = bitcore.to_canon(hands[2], trump)
+    h3 = bitcore.to_canon(hands[3], trump)
+    leader = (dealer + 1) & 3
+    if bitcore.solve_canon(h0, h1, h2, h3, leader, caller, alone,
+                           tt, ttm, nodes, stk, 0, 1) <= 0:
+        return -2
+    if bitcore.solve_canon(h0, h1, h2, h3, leader, caller, alone,
+                           tt, ttm, nodes, stk, 1, 2) <= 1:
+        return 1
+    return 4 if alone == 1 else 2
 
 
 
@@ -1488,7 +1554,7 @@ def run_deals(lo, hi, seed, pin_hand, pin_seat, pin_up, dealer,
     slot is not a correctness question, only a question of whose true answer
     stays.
     """
-    mask = np.int64((len(tt) >> bitcore.TT_WAY_BITS) - 1)
+    mask = np.int64(len(tt) - 1)
     for c in prange(chunks):
         nodes = np.zeros(8, dtype=np.int64)
         stk = np.zeros((bitcore.STACK_PLIES, bitcore.STACK_FIELDS),
@@ -1513,4 +1579,6 @@ def run_deals(lo, hi, seed, pin_hand, pin_seat, pin_up, dealer,
                 solve_bidding(hands, up, dealer, stick, loners,
                               tt, mask, nodes, stk, god_out, i)
         for z in range(COUNTERS):
-            counters[c, z] = nodes[z]
+            # Added to, not assigned: a progress line splits the sweep into
+            # blocks, and each block is another call into here.
+            counters[c, z] += nodes[z]

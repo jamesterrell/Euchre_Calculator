@@ -96,16 +96,16 @@ one the unit suite drives.
 Measured on `TH AS AD KD JD` with `9H` up, seat 2, dealer 0, `--assume order`,
 today's default budgets at `--epsilon 0.05`, ten workers:
 
-    engine   deals    wall       per deal   EV over all deals
-    python   4,000    10.9 min   0.163 s    +0.926 +/- 0.036
-    fast    10,000    47 s       0.0047 s   +0.912 +/- 0.023
+    engine   deals    wall       per deal    EV over all deals
+    python   4,000    10.9 min   0.163 s     +0.926 +/- 0.036
+    fast    10,000    22 s       0.0022 s    +0.912 +/- 0.023
 
-**33x per deal, and the same answer** -- the two means differ by 0.014 against
+**74x per deal, and the same answer** -- the two means differ by 0.014 against
 a combined interval of 0.043, and the two engines call the hand at 88.3% and
-88.8%. They do not agree deal by deal and cannot: `random.Random` does not
-exist inside njit, so the compiled engine carries its own splitmix64 and
-imagines different layouts. What matches is the distribution, which is the only
-thing this script reports.
+88.8% and are euchred on 11.4% and 12.0% of what they call. They do not agree
+deal by deal and cannot: `random.Random` does not exist inside njit, so the
+compiled engine carries its own splitmix64 and imagines different layouts. What
+matches is the distribution, which is the only thing this script reports.
 
 The old cost table, which is what `--engine python` still runs at:
 
@@ -116,10 +116,11 @@ The old cost table, which is what `--engine python` still runs at:
    10,000      10,000      0.15   ~4 hours      ~52 minutes
    10,000      10,000      none   ~45 days      ~10 days
 
-**The first run after a checkout or an edit compiles**, which takes about 70
-seconds and is then cached on disk for every run after it. The 47 seconds above
-is a warm run; the cold one is about two minutes. Editing `bitcore.py` or
-`fastsim.py` invalidates the cache for the functions that changed.
+**The first run after a checkout or an edit compiles**, which takes about 80
+seconds and is then cached on disk for every run after it. The 22 seconds above
+is a warm run; the cold one is about a hundred. Editing either module
+invalidates the cache -- including editing only `bitcore.py`, which numba would
+not notice on its own; see `fastsim._drop_stale_cache`.
 
 The band is not free, and what it costs was measured rather than assumed: over
 900 paired deals at 400 eval sims, `--epsilon 0.15` moved the answer by
@@ -135,18 +136,23 @@ as the decisions having settled. Narrow the band if the question is whether
 they do.
 
 `--workers` is threads under the compiled engine and processes under the Python
-one. Neither scales with the core count: 10 threads run about 6x a single one
-on a 12-thread machine, and the process pool measured 4.6x. Results do not
-depend on the worker count -- every deal seeds itself from its own index -- so
-a parallel run and a serial one give the same number, which is the cheapest
-available check that the parallel path is sound.
+one. Neither scales with the core count. Over 4,000 deals on a 12-thread
+machine the compiled engine ran 62.6 s on one thread, 19.8 s on four, 10.0 s on
+ten and 9.0 s on twelve -- 7.0x at the top, not 12x. The process pool measured
+4.6x. Results do not depend on the worker count -- every deal seeds itself from
+its own index -- so a parallel run and a serial one give the same number, which
+is the cheapest available check that the parallel path is sound. The *node*
+count does wobble by a handful, because threads share one transposition table
+and race for its slots; what they find there is always a true value for the
+position asked about, so the wobble is in how much work gets done and never in
+what comes out.
 
 `--tt-bits` sizes the compiled engine's transposition table, which every thread
-shares and nothing ever clears. It is the single biggest thing between this
-script and its old runtime, and it wants to be big: on the run above, 2^24
-slots (134 MB) takes 91 s, 2^26 (537 MB) takes 47 s and 2^27 (1.1 GB) takes
-37 s. The default scales with the sweep and stops at 2^26, because half a
-gigabyte is already a lot to take without being asked.
+shares and nothing ever clears. On the run above, 2^24 slots (134 MB) takes
+24.2 s, 2^25 (268 MB) 23.1 s, 2^26 (537 MB) 21.9 s and 2^27 (1.1 GB) 21.4 s --
+a flat curve, and it was not always: before the value bounds went into the
+search it was 91 s at 2^24 against 47 s at 2^26. The default scales with the
+sweep, stops at 2^26, and never takes more than an eighth of the machine.
 
 `--both` also solves each of the same deals in God Mode and reports the paired
 difference. Paired, because the two tables play identical layouts: the
@@ -419,21 +425,74 @@ ENGINES = (FAST, PYTHON)
 # It is shared by every thread and never cleared, so it wants to be roughly as
 # big as the number of distinct positions the whole sweep will look at; past
 # that it is only paying for cache misses, and short of it the sweep pays by
-# re-searching. Measured on `TH AS AD KD JD` with `9H` up, 10,000 deals at ten
-# threads: 2^24 slots (134 MB) runs it in 91s, 2^26 (537 MB) in 47s and 2^27
-# (1.1 GB) in 37s. The cap is 2^26 because half a gigabyte is already a lot to
-# take without being asked; `--tt-bits` goes either way from here.
+# re-searching. It is the single biggest thing between this script and its old
+# runtime. Measured on `TH AS AD KD JD` with `9H` up, 10,000 deals at ten
+# threads, at 8 bytes a slot:
+#
+#     2^24   134 MB   35 s
+#     2^25   268 MB   27 s
+#     2^26   537 MB   22 s
+#     2^27   1.1 GB   21 s
+#
+# So 2^26 is the cap: the gigabyte past it buys 4%. The default scales with
+# the sweep and then takes no more than an eighth of the machine's memory,
+# which is a lot to ask quietly -- `describe` prints what it took, and
+# `--tt-bits` overrides it in either direction.
 TT_MIN_BITS = 22
 TT_MAX_BITS = 26
 TT_SLOTS_PER_DEAL = 16384
+TT_MEMORY_SHARE = 8
 
 # Pieces of work per thread, for load balance. See `run_fast`.
 CHUNKS_PER_THREAD = 4
 
 
+def system_memory():
+    """Physical memory in bytes, or None where we cannot find out."""
+    try:
+        import os
+        return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    except (AttributeError, ValueError, OSError):
+        pass
+    try:
+        import ctypes
+
+        class _Status(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong),
+                        ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+        status = _Status()
+        status.dwLength = ctypes.sizeof(_Status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return int(status.ullTotalPhys)
+    except Exception:
+        pass
+    return None
+
+
 def tt_bits_for(deals: int) -> int:
+    """
+    Slots enough for the sweep, and not more than the machine can spare.
+
+    Falls back to the floor rather than guessing when the memory size cannot
+    be read: a table that is too small costs time, and one that is too big
+    costs the user their machine.
+    """
+    ram = system_memory()
+    cap = TT_MAX_BITS
+    if ram:
+        cap = TT_MIN_BITS
+        while cap < TT_MAX_BITS and (1 << (cap + 1)) * 8 <= ram // TT_MEMORY_SHARE:
+            cap += 1
     bits = TT_MIN_BITS
-    while bits < TT_MAX_BITS and (1 << bits) < deals * TT_SLOTS_PER_DEAL:
+    while bits < cap and (1 << bits) < deals * TT_SLOTS_PER_DEAL:
         bits += 1
     return bits
 

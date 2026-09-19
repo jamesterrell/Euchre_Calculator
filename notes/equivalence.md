@@ -243,3 +243,47 @@ The one thing that is **not** proved here is the `epsilon` stopping rule in
 `players._race`, which is a measured approximation and always was. It is
 untouched: the compiled engine runs the same rule with the same constants, and
 `--epsilon none` turns it off in both.
+
+---
+
+## Three things that were tried and are not here
+
+All three were measured on the same run -- `TH AS AD KD JD`, `9H` up, seat 2,
+dealer 0, `--assume order`, 10,000 deals at ten threads -- against a baseline
+of 190,880 positions a deal and 21.6 s.
+
+**Killer moves.** The standard trick of remembering, per ply, the card that
+refuted a sibling and trying it first. It made the search *worse*: 197,636
+positions and 24.2 s. There is already a good move order here -- the cards
+that fight for the trick, cheapest of them first -- and a hand holds at most
+five cards, so the killer mostly displaces a first move that was already the
+right one. Recorded because it is the obvious next thing to reach for.
+
+**Asking a part-played position two yes-or-no questions instead of one open
+one.** A value in `{-2, 1, 2}` can be pinned by "is it at least 1?" and then
+"at least 2?", each on a window one point wide. That *does* pay for a
+whole-hand solve, where `fastsim.play_value` uses it: 190,883 positions
+against 200,192. Inside `_moves_at` it pays nothing -- 191,354 positions and
+21.9 s, which is inside the run-to-run spread -- because it doubles the number
+of searches entered per candidate card and those positions are small enough
+that entering one is most of the work. The split is where it is because both
+sides were measured.
+
+**A set-associative table.** Eight entries to a bucket and a bucket to a cache
+line, so looking at all eight costs the one cache miss that looking at one
+costs. While the search was still reaching the nodes that the `lo`/`hi` bounds
+now cut off, this was worth 91 s against 47 s -- the single biggest change of
+the day. With those bounds in it reversed: 186,190 positions against 190,880
+direct-mapped, but 22.1 s against 21.6 s, and much worse when the table is
+under pressure -- 388k positions against 294k at 2^22 slots, since eight ways
+is also an eighth as many addresses. It is recorded here mainly as a caution:
+it was re-measured only because a *different* bug forced a recheck, and it had
+been true when it was first measured.
+
+**And one thing that is here for the opposite reason.** The table always
+replaces. Depth-preferred replacement -- keep the entry whose subtree was
+bigger -- is the usual policy and costs **twice the nodes** here, 391k against
+191k. A trick-one entry really does stand for a hundred times the subtree, but
+there are far fewer of them than of the trick-two and trick-three entries they
+then block out of that slot for the rest of the sweep, and the blocked ones
+are the ones being asked for.

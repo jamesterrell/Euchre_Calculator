@@ -213,12 +213,15 @@ TT_BITS = 22
 TT_KEY_BITS = 49
 TT_KEY_MASK = (1 << TT_KEY_BITS) - 1
 
-# Slots to a bucket. Eight int64s are one 64-byte cache line, so a probe that
-# looks at all eight costs the same one miss a probe that looks at one does,
-# and the table stops throwing away a deep entry every time a shallow one
-# happens to hash next to it.
-TT_WAY_BITS = 3
-TT_WAYS = 1 << TT_WAY_BITS
+# One slot per position, not a bucket of them. A set-associative table was
+# tried -- eight int64s to a cache line, so looking at all eight costs the one
+# cache miss that looking at one costs -- and while the search was still
+# reaching the nodes the value bounds now cut off, it was worth 91 s against
+# 47 s. With those bounds in, the table holds half as much and the
+# associativity reversed into a loss at every size tested: 186,190 positions a
+# deal against 190,880 direct-mapped, but 22.1 s against 21.1 s, and far worse
+# under pressure -- 388k against 294k at 2^22 slots, since eight ways is also
+# an eighth as many addresses. Recorded because the measurement turned round.
 TT_VALUES = np.array([-2, 1, 2, 4], dtype=np.int64)
 TT_CODES = np.zeros(9, dtype=np.int64)
 TT_CODES[-2 + 4] = 0
@@ -248,8 +251,8 @@ def new_tt(bits: int = TT_BITS):
 
 
 def tt_mask(tt):
-    """The bucket mask for a table: `_tt_index` returns a bucket, not a slot."""
-    return np.int64((len(tt) >> TT_WAY_BITS) - 1)
+    """The index mask for a table, which is why its size is a power of two."""
+    return np.int64(len(tt) - 1)
 
 
 # The search's explicit call stack: one row per ply, and a hand is twenty of
@@ -601,27 +604,43 @@ def _search(h, to_act, n_in_trick, led, win_card, win_seat,
             settled = False
 
             if n_in_trick == 0:
-                # The result is already decided; playing it out cannot change
-                # it.
+                # A Euchre hand is worth one of three numbers, and by the
+                # second trick the tricks already taken usually rule one of
+                # them out. `lo` and `hi` are what is still reachable:
+                #
+                #   the calling team cannot get to three   -> exactly -2
+                #   it already has three                   -> at least 1
+                #   it has dropped a trick                 -> at most 1
+                #
+                # When those meet, the hand is decided and playing it out
+                # cannot change it. When they do not, they can still meet the
+                # window -- a sibling that already scored 1 makes a branch that
+                # cannot beat 1 worth nothing, and the search stops looking for
+                # a march that the lost trick has already ruled out. Both are
+                # ordinary alpha-beta cutoffs against a bound; neither is a
+                # heuristic.
                 left = TRICKS - trick_no
                 if caller_tricks + left < NEEDED:
                     ret = -2
                     settled = True
-                elif caller_tricks >= NEEDED and (trick_no - caller_tricks) >= 1:
-                    ret = 1
-                    settled = True
-                elif 0 < trick_no < TRICKS - 1:
+                else:
+                    lo = 1 if caller_tricks >= NEEDED else -2
+                    if trick_no == caller_tricks:
+                        hi = LONE_MARCH if alone == 1 else MARCH
+                    else:
+                        hi = 1
+                    if lo >= hi or hi <= alpha or lo >= beta:
+                        ret = lo if lo >= hi else (hi if hi <= alpha else lo)
+                        settled = True
+                if not settled and 0 < trick_no < TRICKS - 1:
                     # The last trick is not looked up: what is left under it is
                     # one trick of at most four cards, which the search
                     # finishes in fewer cycles than a miss into a table this
                     # size costs.
                     key = _tt_key(h[0], h[1], h[2], h[3], to_act,
                                   caller_tricks, caller_team, alone, trick_no)
-                    base = _tt_index(key, ttmask) << TT_WAY_BITS
-                    for j in range(TT_WAYS):
-                        entry = tt[base + j]
-                        if (entry & TT_KEY_MASK) != key:
-                            continue
+                    entry = tt[_tt_index(key, ttmask)]
+                    if (entry & TT_KEY_MASK) == key:
                         v = TT_VALUES[(entry >> 51) & 3]
                         f = (entry >> 49) & 3
                         if f == TT_EXACT:
@@ -639,7 +658,6 @@ def _search(h, to_act, n_in_trick, led, win_card, win_seat,
                                 settled = True
                             elif v < beta:
                                 beta = v
-                        break
                     if not settled:
                         store = True
 
@@ -675,34 +693,22 @@ def _search(h, to_act, n_in_trick, led, win_card, win_seat,
             if rest == 0:
                 ret = best
                 if store:
-                    # Eight slots to a bucket and a bucket to a cache line, so
-                    # looking at all of them costs what looking at one costs.
-                    # The one that goes is the one with the least under it:
-                    # a trick-one entry stands for a subtree a hundred times
-                    # the size of a trick-three entry, and a direct-mapped
-                    # table lets the cheap one evict it.
-                    base = _tt_index(key, ttmask) << TT_WAY_BITS
-                    depth_left = TRICKS - trick_no
-                    victim = base
-                    worst = 99
-                    for j in range(TT_WAYS):
-                        entry = tt[base + j]
-                        if entry == 0 or (entry & TT_KEY_MASK) == key:
-                            victim = base + j
-                            worst = -1
-                            break
-                        d = (entry >> 53) & 7
-                        if d < worst:
-                            worst = d
-                            victim = base + j
+                    # Always replace. Depth-preferred -- keep the entry whose
+                    # subtree was bigger -- is the usual policy and is wrong
+                    # here: it costs **twice the nodes**, 391k a deal against
+                    # 191k. A trick-one entry does stand for a hundred times
+                    # the subtree, but there are far fewer of them than of the
+                    # trick-two and trick-three entries they then block out of
+                    # the slot for the rest of the sweep, and the blocked ones
+                    # are the ones being asked for.
                     flag = TT_EXACT
                     if best <= a0:
                         flag = TT_UPPER
                     elif best >= b0:
                         flag = TT_LOWER
-                    tt[victim] = (key | (flag << 49)
-                                  | (TT_CODES[best + 4] << 51)
-                                  | (depth_left << 53))
+                    tt[_tt_index(key, ttmask)] = (
+                        key | (flag << 49) | (TT_CODES[best + 4] << 51)
+                        | ((TRICKS - trick_no) << 53))
                 phase = UNWIND
                 continue
 

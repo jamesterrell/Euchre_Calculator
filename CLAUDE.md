@@ -99,7 +99,7 @@ python hand_ev.py "JS AS 9H 9D TC" --up 9S --engine python   # the old path
 **`hand_ev.py` runs compiled by default** -- `fastsim.py` over `bitcore.py`,
 which is this repo's model with every layer above the solver rewritten as
 integers and njit. Ten thousand deals at the default budgets now take **about
-fifty seconds** on ten threads, against about twenty-seven minutes on the
+twenty-two seconds** on ten threads, against about twenty-seven minutes on the
 Python path. See "The compiled engine" below for what it is and what holds the
 two to the same answers; `--engine python` is still there and is what the unit
 suite drives.
@@ -161,7 +161,7 @@ dealer.py          Dealer dataclass: shuffle, stack specific cards, deal 4x5
 n_game_sim.py      generate_hands() -> (n_games, 4, 5, 2) batch of dealt hands
 fast_search.py     the solver: depth-first alpha-beta over the game tree
 bitcore.py         the same solver as bitboards, with the exact reductions in
-                   notes/equivalence.md -- ~300x faster and the same answers
+                   notes/equivalence.md -- ~95x faster and the same answers
 fastsim.py         the whole sweep compiled: deal, auction, sampling, play
 reference_solver.py independent pure-Python solver, used only by the tests
 observation.py     one seat's information set, and sampling worlds from it
@@ -834,7 +834,7 @@ the sweep is priced by `deals` and `epsilon` alone:
 | 10,000 | 10,000    | none    | ~45 days    | ~10 days    |
 
 **That table is `--engine python`.** The default is now the compiled engine,
-and the first row of it is **47 seconds** rather than 34 minutes -- see "The
+and the first row of it is **22 seconds** rather than 34 minutes -- see "The
 compiled engine" below, and `notes/equivalence.md` for why the reductions it
 rests on are exact rather than approximate. Everything in this section about
 what the sweep *means* is unchanged; only its price is.
@@ -894,9 +894,9 @@ dealer 0, `--assume order`, default budgets, `--epsilon 0.05`, ten workers:
 | engine | deals  | wall     | per deal  | EV over all deals |
 | ------ | ------ | -------- | --------- | ----------------- |
 | python |  4,000 | 10.9 min | 0.163 s   | +0.926 +/- 0.036  |
-| fast   | 10,000 | 47 s     | 0.0047 s  | +0.912 +/- 0.023  |
+| fast   | 10,000 | 22 s     | 0.0022 s  | +0.912 +/- 0.023  |
 
-**33x a deal, and the same answer**: the means differ by 0.014 against a
+**74x a deal, and the same answer**: the means differ by 0.014 against a
 combined interval of 0.043, the calling rates are 88.3% and 88.8%, and the
 euchre rates 11.4% and 12.0%. They do not agree *deal by deal* and cannot --
 `random.Random` does not exist inside njit, so the compiled engine carries its
@@ -950,8 +950,8 @@ is neither part of the state nor part of the live set -- which makes Theorem
 1's runs longer than they look.
 
 Measured effect of all of it on `bitcore` against `fast_search`: same value on
-every hand tested, **~300x faster** on whole deals and part-played positions
-alike, from a cold table.
+every hand tested, **95x faster** on whole deals with the table emptied before
+every single solve, and **~600x** on part-played positions with it warm.
 
 ### The transposition table
 
@@ -986,18 +986,26 @@ so it is as true for the next deal as for the one that wrote it.
 `tests/test_bitcore.py` pins that directly -- a cold table must give the same
 answers as a warm one.
 
-Two design choices were measured rather than assumed:
+Two design choices were measured rather than assumed, and one of them
+**reversed** when the search got better, which is the more useful lesson:
 
-- **Eight slots to a bucket, one bucket to a cache line.** Direct-mapped, a
-  trick-three entry evicts a trick-one entry whenever it happens to hash next
-  to it, and the trick-one entry stood for a subtree a hundred times the size.
-  Looking at all eight costs the one cache miss that looking at one costs, and
-  the victim is the entry with the least under it. On the 10,000-deal run this
-  took 91 s to 47 s at the same table size -- the single biggest change after
-  the search itself.
-- **Size matters more than anything else left.** Same run: 2^24 slots (134 MB)
-  91 s, 2^26 (537 MB) 47 s, 2^27 (1.1 GB) 37 s. `hand_ev.py` scales the default
-  with the sweep and stops at 2^26; `--tt-bits` goes either way.
+- **It always replaces.** Depth-preferred replacement -- keep the entry whose
+  subtree was bigger -- is the usual policy and costs *twice the nodes* here,
+  391k a deal against 191k. A trick-one entry really does stand for a hundred
+  times the subtree, but there are far fewer of them than of the trick-two and
+  trick-three entries they then block out of that slot for the rest of the
+  sweep, and the blocked ones are the ones being asked for.
+- **It is direct-mapped**, after a set-associative version -- eight entries to
+  a cache line -- was written, measured at 91 s against 47 s, adopted, and then
+  measured again once the value bounds had halved the node count. It is now a
+  loss at every size: 22.1 s against 21.6 s, and 388k positions against 294k
+  when the table is under pressure, since eight ways is also an eighth as many
+  addresses. See `notes/equivalence.md`; it was rechecked only because a
+  different bug forced a recheck.
+- **Size now matters much less than it did.** Same run: 2^24 slots (134 MB)
+  24.2 s, 2^25 23.1 s, 2^26 (537 MB) 21.9 s, 2^27 (1.1 GB) 21.4 s. Before the
+  value bounds it was 91 s at 2^24. `hand_ev.py` scales the default with the
+  sweep, stops at 2^26, and never takes more than an eighth of the machine.
 
 ### It caches, and that is why `_search` is flat
 
@@ -1010,9 +1018,19 @@ the recursive version -- which is how the rewrite was checked -- and the flat
 one costs about 4% more per node, which was never the point.
 
 So: **no function in `bitcore.py` or `fastsim.py` may recurse.** One that does
-brings the segfault back for its whole module. And the first run after editing
-either file recompiles what changed, about seventy seconds, so a timing taken
-immediately after an edit is a timing of the compiler.
+brings the segfault back for its whole module.
+
+**And the caching has a trap in it that cost an afternoon.** numba keys each
+function's cache on *its own* source and nothing else. Everything in `fastsim`
+has `bitcore`'s search compiled into it, so editing the solver alone leaves
+`fastsim`'s cache in place and quietly keeps running the old one -- the symptom
+is a change to `bitcore.py` that measures as doing nothing. It hid a 2x
+improvement, and two design decisions were then made on numbers taken from the
+stale build; one of them (the set-associative table above) turned out to be
+backwards. `fastsim._drop_stale_cache` now stamps what the module was built
+against and throws its own cache away when that stamp moves, so an edit to
+either file costs the eighty seconds it should. A timing taken immediately
+after an edit is still a timing of the compiler.
 
 ### What holds the two implementations together
 
