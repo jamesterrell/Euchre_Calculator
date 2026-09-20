@@ -38,60 +38,48 @@ Define the **live set** of `P`:
 > `L(P)` = every card in any seat's hand, together with the single card that is
 > currently *winning* the trick on the table, if a trick is in progress.
 
-Every one of the twenty-four cards is in exactly one of three places: in a
-seat's hand, winning the trick on the table, or **dead** -- buried in the
-kitty, spent in a completed trick, or played to the trick on the table and
-already beaten. "Dead" does not mean unaccounted for. A card played to this
-trick is tracked, precisely, by being *absent from the hand it came from*, and
-that absence is as much a part of `P` as the cards still there.
+Cards in the kitty and in completed tricks are not live. Neither are cards
+played to the trick on the table that are already beaten, and that is the only
+part worth arguing. The argument is about information:
 
-What is dropped is only the dead pile's *internal structure* -- which dead card
-is which. The kitty and the completed tricks are uncontroversial there. The
-beaten cards of the trick in progress are the case worth arguing, so:
+**Lemma 0 (what a position has to remember).** *Of the trick in progress, four
+things suffice: the suit led, the card winning it, the seat that played that
+card, and how many seats have played. Anything else it could say about that
+trick is already implied by the hands.*
 
-**Lemma 0.** *The value of `P` depends on the cards played to the trick now on
-the table only through the suit that was led, the card currently winning it,
-the seat that played that card, and how many seats have played.*
+*Proof.* Two rules read the position, and between them they ask for nothing
+more.
 
-*Proof.* Two things in the rules could tell one dead card from another, and
-neither does.
+**(R1)** asks what a seat *holds*, and the hands answer that. They answer it
+about the trick too: a card played to it is gone from the hand it came from,
+which is how the position records it, and whatever obligation to follow suit
+its owner was under was discharged in the playing. The one thing the hands
+cannot imply is the suit that was led, because (R1) binds the seats still to
+play to it -- so it is carried.
 
-**Legality (R1)** is a rule about the cards a seat *holds*. A beaten card is in
-no hand, so no future legality test can name it. The seat that played it did
-have to follow suit at the time -- but that obligation constrained *which card
-left the hand*, and its effect is already recorded in the cards the hand has
-left. The led *suit* does have to be remembered, because the seats still to
-play are bound by it, and it is.
+**(R2)** asks for the *maximum* of the trick. A card that is not the maximum
+now can never become one, since later cards only raise it; so the winner so far
+is the whole of the past that the winner at the end depends on. It is exact
+rather than an estimate: if any trump has been played the winner is a trump, so
+a beaten card can never be a trump the winner does not already beat.
 
-**The trick (R2)** takes the maximum of the cards played to it. A card that is
-not the maximum now can never become one: later cards only raise it. So who
-takes the trick is settled by the current winner and by the cards still to
-come. And the current winner is a *complete* summary rather than an
-approximation of one -- if any trump has been played then the winner is a
-trump, so a beaten card can never be a trump the winner does not already beat.
+Nothing else in the rules reads the position, so two positions agreeing on the
+hands and on those four have the same value. ∎
 
-A beaten card therefore enters no further legality test and no further
-comparison. The value of `P` is the minimax value of the play still to come;
-nothing in that play refers to such a card; so two positions that agree on the
-four hands and on `(led, win_card, win_seat, n_in_trick)` have the same value,
-whatever their beaten cards were. ∎
+Sufficient, not proved minimal -- the count of seats that have played is itself
+implied by the hand sizes, and is carried because it is free rather than
+because it is needed. The load-bearing part is the other three.
 
-*What this is and is not.* It says the beaten cards need not be *named*. It
-does not say they are gone from the bookkeeping -- they are exactly as gone as
-the kitty, which is to say out of their owners' hands and out of `L(P)`, both
-of which the state records. And it is a statement about **values**, not about
-**reachability**: two positions with the same forward state can have different
-pasts, and one described this way may be one no legal play could produce, since
-a seat that followed suit and lost is from here on indistinguishable from one
-that could not follow and discarded. That costs nothing. A minimax value is
-defined by the tree below a position and never asks how the position was
-arrived at, and `bitcore` is in any case only ever handed positions that a real
-deal walked it into.
+*Values, not reachability.* A seat that followed suit and lost is from here on
+indistinguishable from one that could not follow and discarded, so the same
+four scalars can describe a position no legal play would produce. That costs
+nothing: a minimax value is defined by the tree below a position and never asks
+how the position was reached.
 
-This is why `bitcore` carries a trick as `(led, win_card, win_seat,
-n_in_trick)` and not as a list of cards -- the cards themselves are already
-accounted for by their absence from the hands. It is a strict reduction of the
-state, and it widens the equivalence classes in Theorem 1 by shrinking `L(P)`.
+`bitcore` therefore carries a trick as `(led, win_card, win_seat, n_in_trick)`
+rather than as a list of cards -- the cards themselves are already accounted
+for by their absence from the hands. It is a strict reduction of the state, and
+it widens Theorem 1's equivalence classes by shrinking `L(P)`.
 
 ---
 
