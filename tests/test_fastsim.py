@@ -321,13 +321,13 @@ class TestInference(unittest.TestCase):
             played_cards[i] = card_id(card)
         caps = np.zeros(5, dtype=np.int64)
         voids = np.zeros(4, dtype=np.int64)
-        pool, forced = F.obs_setup(
+        pool, forced, buried = F.obs_setup(
             view.seat, hands, deal.dealer, card_id(deal.up_card),
             F.PICKED_UP if picked else F.TURNED_DOWN, trump,
             -1 if sitting is None else sitting,
             card_id(discard) if view.discard is not None else -1,
             False, played_seats, played_cards, len(plays), width, caps, voids)
-        return hands, pool, forced, caps, voids
+        return hands, pool, forced, buried, caps, voids
 
     def test_matches_observation(self):
         """Same unseen pool, same room per slot, same voids, same up-card."""
@@ -340,7 +340,7 @@ class TestInference(unittest.TestCase):
             view = state[3]
             want_pool, want_caps, want_voids, want_forced, _, _ = \
                 obs._draw_setup(view)
-            _, pool, forced, caps, voids = self._setup(state)
+            _, pool, forced, buried, caps, voids = self._setup(state)
             checked += 1
 
             self.assertEqual(set(to_cards(pool)), set(want_pool))
@@ -371,13 +371,13 @@ class TestInference(unittest.TestCase):
             if state is None:
                 continue
             deal, live, plays, view, trump, sitting, width, picked, _ = state
-            hands, pool, forced, caps, voids = self._setup(state)
+            hands, pool, forced, buried, caps, voids = self._setup(state)
             F.seed_stream(stream, rng.randrange(10 ** 9))
             for _ in range(8):
                 ok = F.draw_world(pool, caps, voids,
                                   -1 if sitting is None else sitting, trump,
                                   hands[view.seat], view.seat, deal.dealer,
-                                  forced, stream, world)
+                                  forced, buried, stream, world)
                 self.assertTrue(ok, "the sampler gave up on a real position")
                 checked += 1
 
@@ -387,10 +387,10 @@ class TestInference(unittest.TestCase):
                     self.assertEqual(int(world[slot]) & seen, 0,
                                      "a card was dealt to two places")
                     seen |= int(world[slot])
-                known = seen | to_mask([c for _, c in plays])
-                known |= to_mask(view.known_kitty())
-                self.assertEqual(known, (1 << 24) - 1,
-                                 "a card ended up nowhere")
+                self.assertEqual(seen | to_mask([c for _, c in plays]),
+                                 (1 << 24) - 1,
+                                 "a card ended up nowhere -- every one of the "
+                                 "24 is in a hand, in the kitty, or played")
 
                 counts = view.counts()
                 for seat in range(4):
@@ -430,7 +430,7 @@ class TestDecisions(unittest.TestCase):
     def _python_play(self, observer, hands, dealer, up_card, up_state, trump,
                      caller, alone, plays, n_in_trick, led_card, win_card,
                      win_seat, caller_tricks, trick_no, budget, epsilon,
-                     stream, pool, caps, voids, forced, sitting):
+                     stream, pool, caps, voids, forced, buried, sitting):
         """
         `PIMCPlayer.play`, fed by the compiled sampler and solved by
         `fast_search`. Nothing of `fastsim`'s decision code is used.
@@ -445,7 +445,7 @@ class TestDecisions(unittest.TestCase):
             ok = F.draw_world(pool, caps, voids,
                               -1 if sitting is None else sitting, trump,
                               hands[observer], observer, dealer, forced,
-                              stream, world)
+                              buried, stream, world)
             assert ok
             held = [list(to_cards(int(world[s]))) for s in range(4)]
             counts = np.array(
@@ -488,7 +488,7 @@ class TestDecisions(unittest.TestCase):
                 continue
             trick = list(view.current_trick)
             observer = view.seat
-            hands, pool, forced, caps, voids = inference._setup(state)
+            hands, pool, forced, buried, caps, voids = inference._setup(state)
             if len(to_cards(int(hands[observer]))) < 2:
                 continue
 
@@ -540,7 +540,7 @@ class TestDecisions(unittest.TestCase):
                 F.PICKED_UP if picked else F.TURNED_DOWN, trump, view.caller,
                 1 if view.alone else 0, trick, len(trick), led_card, win_card,
                 win_seat, caller_tricks, view.trick_no, budget, epsilon,
-                stream2, pool, caps, voids, forced, sitting)
+                stream2, pool, caps, voids, forced, buried, sitting)
             checked += 1
             self.assertEqual(to_cards(1 << int(got))[0], want,
                              "trick %d, seat %d, trump %s"

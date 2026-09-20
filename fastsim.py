@@ -331,11 +331,15 @@ def obs_setup(observer, hands, dealer, up_card, up_state, trump, sitting,
     """
     The pool a sampled world is drawn from, and the room each slot has for it.
 
-    Returns (pool, forced_up), where `forced_up` is the up-card if it must be
-    put back in the dealer's hand and -1 otherwise. `caps` and `voids` are
-    filled in place: one entry per seat plus the kitty, whose capacity is
-    *derived* from card conservation rather than counted, which is what lets
-    the dealer's six-card moment be an ordinary observation.
+    Returns (pool, forced_up, known_kitty). `forced_up` is the up-card if it
+    must be put back in the dealer's hand and -1 otherwise; `known_kitty` is
+    the buried cards this seat can already name -- the up-card once it is
+    turned down, and the dealer's own discard -- which are kept out of the pool
+    so they cannot be dealt to anybody, and so have to be put back on the pile
+    afterwards. `caps` and `voids` are filled in place: one entry per seat plus
+    the kitty, whose capacity is *derived* from card conservation rather than
+    counted, which is what lets the dealer's six-card moment be an ordinary
+    observation.
     """
     voids_of(plays_seat, plays_card, n_plays, width, trump, voids)
 
@@ -351,12 +355,13 @@ def obs_setup(observer, hands, dealer, up_card, up_state, trump, sitting,
     if pending:
         counts[observer] += 1
 
-    seen = hands[observer] | played
+    known_kitty = 0
     if up_state != PICKED_UP:
-        seen |= np.int64(1) << up_card
+        known_kitty |= np.int64(1) << up_card
     if observer == dealer and discard >= 0:
-        seen |= np.int64(1) << discard
+        known_kitty |= np.int64(1) << discard
 
+    seen = hands[observer] | played | known_kitty
     pool = FULL_DECK & ~seen
 
     total = 0
@@ -379,7 +384,7 @@ def obs_setup(observer, hands, dealer, up_card, up_state, trump, sitting,
             for s in range(PLAYERS):
                 held += caps[s]
             caps[KITTY] = popcount(pool) - held
-    return pool, forced
+    return pool, forced, known_kitty
 
 
 @njit(cache=True)
@@ -472,13 +477,16 @@ def sample_world(pool, caps, voids, sitting, trump, rng, out):
 
 @njit(cache=True)
 def draw_world(pool, caps, voids, sitting, trump, own, observer, dealer,
-               forced, rng, out):
+               forced, known_kitty, rng, out):
     """
     `sample_world`, retried, with what is already known written back over it.
 
-    The observer's own hand is not a guess, and neither is the up-card when it
-    was ordered up and nothing since says it went under: both are put in after
-    the deal-out, which never saw them.
+    Three things are not guesses and so are not dealt: the observer's own hand,
+    the up-card when it was ordered up and nothing since says it went under,
+    and the buried cards the seat can already name. All three are put back
+    after the deal-out, which never saw them -- so that every one of the
+    twenty-four cards is in exactly one of the five slots, which is the
+    invariant the rest of the module is entitled to assume.
     """
     ok = False
     for _ in range(MAX_DRAW_ATTEMPTS):
@@ -489,6 +497,7 @@ def draw_world(pool, caps, voids, sitting, trump, own, observer, dealer,
         return False
     if forced >= 0:
         out[dealer] |= np.int64(1) << forced
+    out[KITTY] |= known_kitty
     out[observer] = own
     return True
 
@@ -979,9 +988,9 @@ def pimc_bid(observer, hands, dealer, up_card, up_state,
     voids = np.zeros(PLAYERS, dtype=np.int64)
     plays_seat = np.zeros(1, dtype=np.int64)
     plays_card = np.zeros(1, dtype=np.int64)
-    pool, forced = obs_setup(observer, hands, dealer, up_card, up_state, 4, -1,
-                             -1, False, plays_seat, plays_card, 0, 4,
-                             caps, voids)
+    pool, forced, buried = obs_setup(observer, hands, dealer, up_card, up_state,
+                                     4, -1, -1, False, plays_seat, plays_card,
+                                     0, 4, caps, voids)
 
     world = np.zeros(PLAYERS + 1, dtype=np.int64)
     vals = np.zeros(MAX_OPTIONS, dtype=np.float64)
@@ -999,7 +1008,7 @@ def pimc_bid(observer, hands, dealer, up_card, up_state,
         if racing and n_alive < 2:
             break
         if not draw_world(pool, caps, voids, -1, 4, hands[observer], observer,
-                          dealer, forced, rng, world):
+                          dealer, forced, buried, rng, world):
             break
         drawn += 1
         nodes[1] += 1
@@ -1096,9 +1105,9 @@ def pimc_discard(observer, hands, up_card, trump, caller, alone,
     voids = np.zeros(PLAYERS, dtype=np.int64)
     plays_seat = np.zeros(1, dtype=np.int64)
     plays_card = np.zeros(1, dtype=np.int64)
-    pool, forced = obs_setup(observer, hands, observer, up_card, PICKED_UP,
-                             trump, sitting, -1, True, plays_seat, plays_card,
-                             0, 4, caps, voids)
+    pool, forced, buried = obs_setup(observer, hands, observer, up_card,
+                                     PICKED_UP, trump, sitting, -1, True,
+                                     plays_seat, plays_card, 0, 4, caps, voids)
 
     world = np.zeros(PLAYERS + 1, dtype=np.int64)
     work = np.zeros(PLAYERS, dtype=np.int64)
@@ -1119,7 +1128,7 @@ def pimc_discard(observer, hands, up_card, trump, caller, alone,
         if racing and n_alive < 2:
             break
         if not draw_world(pool, caps, voids, sitting, trump, hands[observer],
-                          observer, observer, forced, rng, world):
+                          observer, observer, forced, buried, rng, world):
             break
         drawn += 1
         nodes[3] += 1
@@ -1194,9 +1203,10 @@ def pimc_play(observer, hands, dealer, up_card, up_state, trump, caller,
 
     caps = np.zeros(PLAYERS + 1, dtype=np.int64)
     voids = np.zeros(PLAYERS, dtype=np.int64)
-    pool, forced = obs_setup(observer, hands, dealer, up_card, up_state, trump,
-                             sitting, discard, False, plays_seat, plays_card,
-                             n_plays, width, caps, voids)
+    pool, forced, buried = obs_setup(observer, hands, dealer, up_card, up_state,
+                                     trump, sitting, discard, False,
+                                     plays_seat, plays_card, n_plays, width,
+                                     caps, voids)
 
     world = np.zeros(PLAYERS + 1, dtype=np.int64)
     ch = np.zeros(PLAYERS, dtype=np.int64)
@@ -1225,7 +1235,7 @@ def pimc_play(observer, hands, dealer, up_card, up_state, trump, caller,
         if racing and n_alive < 2:
             break
         if not draw_world(pool, caps, voids, sitting, trump, hands[observer],
-                          observer, dealer, forced, rng, world):
+                          observer, dealer, forced, buried, rng, world):
             break
         drawn += 1
         nodes[5] += 1
