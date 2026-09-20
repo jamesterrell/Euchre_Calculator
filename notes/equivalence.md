@@ -47,14 +47,35 @@ by:
 current trick, beyond which seat is winning it with which card, how many seats
 have played, and what suit was led.*
 
-*Proof.* Those cards are no longer in anybody's hand, so they constrain no
-future legality (R1). By (R2) the winner of the trick is the maximum of the
-cards played to it; a card that is not currently the maximum can never become
-it, so whether a later card takes the trick depends only on the current
-maximum. A losing card therefore enters no further comparison and no further
-legality test, and the rest of the play -- and so the payoff -- is unchanged if
-it is replaced by any other card, or forgotten. The led *suit* must be
-remembered, because (R1) still refers to it. ∎
+*Proof.* A card already played is in nobody's hand, so no *future* legality
+test can refer to it (R1). The seat that played it certainly had to follow suit
+at the time -- but that obligation was discharged when the card left the hand,
+and what it forced is already recorded in the cards the hand has left. Nothing
+in the play still to come asks what was played, only what is held.
+
+By (R2) the winner of the trick is the maximum of the cards played to it, and a
+card that is not currently the maximum can never become one: later cards only
+raise the maximum. So whether a later card takes the trick depends on the
+current winner and on nothing else that is already down. Note that the current
+winner is a complete summary rather than an approximation of one -- if any
+trump has been played the winner is a trump, so a losing card can never be a
+trump the winner does not already beat.
+
+A losing card therefore enters no further comparison and no further legality
+test. The value of `P` is the minimax value of the play still to come, and
+nothing in that play can refer to such a card, so two positions that agree on
+the hands, the led suit, the winning card, the seat that played it and how many
+seats have played have the same value, whatever their losing cards were. The
+led *suit* must be remembered, because (R1) still refers to it. ∎
+
+*What this is not.* It is a statement about **values**, not about
+**reachability**. Two positions with the same forward state can have different
+pasts, and a position described this way may be one that no legal play could
+have produced -- a seat that dutifully followed suit and lost is, from here on,
+indistinguishable from one that could not follow and discarded. That costs
+nothing: a minimax value is defined by the tree below a position and does not
+ask how the position was arrived at, and in any case `bitcore` is only ever
+handed positions that a real deal walked it into.
 
 This is why `bitcore` carries a trick as `(led, win_card, win_seat,
 n_in_trick)` and not as a list of cards. It is a strict reduction of the state,
