@@ -7,7 +7,7 @@ positions which look different are the *same game*, or that two moves which
 look different lead to the same value -- so the search may try one and not the
 other, or answer one out of what it learned about the other.
 
-Everything here is about **double-dummy** Euchre: perfect information, four
+Everything here is about **God Mode** Euchre: perfect information, four
 seats, minimax by parity. That is what the solver computes and it is the only
 thing these theorems are about. Nothing here says anything about what a PIMC
 player should believe.
