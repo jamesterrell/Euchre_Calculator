@@ -82,7 +82,7 @@ def walk(dealt, starting_player, caller, alone):
         cards, seats = [], []
         for k in range(width):
             seat = int(pp[trick_no, k])
-            card = fs._decode(ps[trick_no, k], pv[trick_no, k])
+            card = fs.decode_card(ps[trick_no, k], pv[trick_no, k])
             yield ([list(h) for h in hands], list(cards), list(seats),
                    seat, caller_tricks, trick_no)
             hands[seat].remove(card)

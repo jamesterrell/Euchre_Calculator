@@ -275,7 +275,7 @@ def replay_line(hands, starting_player, caller, score, ps, pv, pp, winners,
 
     Returns a list of violations; empty means the line is sound.
     """
-    from fast_search import _decode
+    from fast_search import decode_card
 
     errs = []
     remaining = [[tuple(int(v) for v in c) for c in hands[p]] for p in range(4)]
@@ -304,7 +304,7 @@ def replay_line(hands, starting_player, caller, score, ps, pv, pp, winners,
                 errs.append("trick %d seat %d: player %d played, expected %d"
                             % (t + 1, k, p, order[k]))
 
-            card = tuple(_decode(ps[t, k], pv[t, k]))
+            card = tuple(decode_card(ps[t, k], pv[t, k]))
             if card not in remaining[p]:
                 errs.append("trick %d: player %d played %s, which it does not hold"
                             % (t + 1, p, card))

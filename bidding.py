@@ -351,28 +351,51 @@ def first_bid_choice(deal: Deal, allow_loners: bool = False) -> Tuple[int, int]:
     return value_to(seat, ordered), value_to(seat, passed.value)
 
 
-def first_bid_options(deal: Deal, allow_loners: bool = True) -> dict:
+def bid_options(deal: Deal, seat: Optional[int] = None,
+                allow_loners: bool = True) -> dict:
     """
-    Every first-bid option open to the eldest hand, on its own team's scale.
+    Every round-one option open to `seat`, on its own team's scale.
 
-    Returns {"pass": v, "order": v, "order alone": v} -- net points to the
-    first bidder's team, so the largest number is simply the best bid. The
-    "order alone" entry is dropped when `allow_loners` is False.
+    Returns {"pass": v, "order": v, "order alone": v} -- net points to that
+    seat's team, so the largest number is simply the best bid. The "order
+    alone" entry is dropped when `allow_loners` is False. `seat` defaults to
+    the eldest hand.
 
-    This is the question a calculator front end actually asks. The loner
-    usually loses it -- over 32 measured deals the eldest hand never gained by
-    going alone, and lost by it on 8 -- but when it wins it wins by two points,
-    which is exactly why it is worth showing rather than assuming.
+    This is the question a calculator front end actually asks, and it is worth
+    asking from any seat: what the up-card is worth depends on how many seats
+    speak before you, and the pass branch is the whole of the rest of the
+    auction from wherever you are sitting.
+
+    Passing is priced by `rest_of_auction` from the *next* index, which is the
+    same chain `_round_one` walks -- so a seat that declines gets whatever the
+    remaining seats do, not zero.
     """
-    seat = deal.first_bidder
-    order = deal.bidding_order()
-    passed = _round_one(deal, 1, order, False, allow_loners)
+    order = list(deal.bidding_order())
+    if seat is None:
+        seat = deal.first_bidder
+    if seat not in order:
+        raise ValueError("seat must be 0-%d, got %r" % (PLAYERS - 1, seat))
 
+    passed = rest_of_auction(deal, order.index(seat) + 1, order,
+                             allow_loners=allow_loners)
     options = {"pass": value_to(seat, passed.value),
                "order": value_to(seat, order_up(deal, seat)[0])}
     if allow_loners:
         options["order alone"] = value_to(seat, order_up(deal, seat, True)[0])
     return options
+
+
+def first_bid_options(deal: Deal, allow_loners: bool = True) -> dict:
+    """
+    Every first-bid option open to the eldest hand, on its own team's scale.
+
+    `bid_options` from the seat that speaks first. Kept as its own name because
+    it is the shape the front end asks for most often, and because the loner
+    measurement below was taken from this seat: over 32 measured deals the
+    eldest hand never gained by going alone, and lost by it on 8 -- which is
+    exactly why the option is worth showing rather than assuming.
+    """
+    return bid_options(deal, deal.first_bidder, allow_loners)
 
 
 # ------------------------------------------------- entry points for players

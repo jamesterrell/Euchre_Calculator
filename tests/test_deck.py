@@ -19,7 +19,7 @@ import numpy as np
 
 import euchre_testkit as k
 from deck import full_euchre_deck
-from fast_search import encode_hands, _decode
+from fast_search import encode_hands, decode_card
 
 
 class TestDeckContents(unittest.TestCase):
@@ -103,7 +103,7 @@ class TestCardEncoding(unittest.TestCase):
     def test_decode_round_trips_every_card(self):
         for c in full_euchre_deck:
             s, v = k.suit_strength(c)
-            self.assertEqual(_decode(s, v), [int(c[0]), int(c[1])],
+            self.assertEqual(decode_card(s, v), [int(c[0]), int(c[1])],
                              "round trip failed for %s" % k.name_of(c))
 
 

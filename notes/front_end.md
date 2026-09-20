@@ -216,18 +216,38 @@ Deliberately **not** in the first cut: game score, defending alone, heuristic
 opponents (roadmap section 2), and anything that needs `bitcore` to recover a
 line.
 
-## Suggested order
+## Order of work
 
-1. **`evaluate` and `solve` as plain Python, with tests.** No UI, no server.
-   This is the piece that has to exist whatever the front end turns out to be,
-   and it makes the whole thing drivable from a REPL. Includes the public
-   decoder and the arbitrary-seat generalisation of `first_bid_options`.
-2. **Hoist the transposition table** out of `run_fast` so a process can keep
-   one.
-3. **Decide the transport** -- and it is worth asking whether it needs one. If
-   the UI is a notebook or a local script, (1) is already the whole product.
-4. **The UI**, once there is something to point it at.
+1. ~~**`evaluate` and `solve` as plain Python, with tests.**~~ **Done** --
+   `api.py`, `tests/test_api.py`, 20 tests. It is a web app, so the results are
+   frozen dataclasses with `as_dict()` returning plain JSON: cards as `"JS"`,
+   suits as `"spades"`, nothing a `json.dumps` will choke on. Measured on this
+   machine: `solve` 98 ms warm, `evaluate` 7.3 s for 1,000 deals on ten
+   threads. The two gaps named above are closed -- `fast_search.decode_card` is
+   public, and `bidding.bid_options(deal, seat)` asks the round-one question
+   from any seat.
+2. **Hoist the transposition table** out of `run_fast` so a long-lived process
+   keeps one instead of allocating 134 MB per call. `evaluate` makes three
+   calls, so this is ~0.3 s of a 7.3 s query -- worth doing before the server,
+   not before anything else.
+3. **The server.** Boot with a throwaway query and a visible building state,
+   because a cold numba cache is 80 s rather than 1.9. Serialise queries
+   behind a lock: one query already uses every core, and two at once
+   oversubscribe numba's thread pool and make both slower.
+4. **The UI.**
 
-The open question for step 3 is who this is for. A notebook is free; a web UI
-is a different project with a different shape, and the answer changes what (1)
-should return -- JSON-shaped dataclasses versus whatever reads best in a REPL.
+Nothing in (2) or (3) changes `api.py`'s shape, which was the point of doing
+it first.
+
+## Notes for whoever writes the server
+
+- `evaluate(..., workers=N)` sets numba's thread count for the process. Pick it
+  once at boot rather than per request.
+- `deals` is the only knob worth putting in front of a user, and the wait is
+  `deals * 0.0057` seconds for all three actions. Quote it before running.
+- `Evaluation.best()` exists and is **not advice** -- at 1,000 deals the
+  order/alone gap on the worked example is smaller than the alone interval.
+  Render the intervals or the UI will overstate what it knows.
+- A passed-out `Solution` has no tricks. God Mode essentially never passes out
+  -- 0 of 1600 measured -- but the shape has to survive it, and
+  `test_a_passed_out_solution_still_serialises` pins that.

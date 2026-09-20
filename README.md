@@ -348,6 +348,7 @@ functions compile on first call in a fresh process, about 15 s.
 ├── pimc_sweep.py             # God Mode against the PIMC sim, in bulk
 ├── pimc_example.py           # One deal, every decision printed
 ├── hand_ev.py                # What one pinned hand is worth, played out
+├── api.py                    # evaluate() and solve(), for a front end
 ├── interface.ipynb           # One worked example, notebook form
 ├── docs/writeup.md           # The engine explained for Euchre players
 ├── notes/                    # Measurements, and the proofs behind bitcore

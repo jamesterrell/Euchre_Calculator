@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 
-from fast_search import solve, solve_line, _decode
+from fast_search import solve, solve_line, decode_card
 from reference_solver import solve_py, hands_to_py
 from n_game_sim import generate_hands
 
@@ -77,7 +77,7 @@ def check_line(hands, starting_player, caller, score, ps, pv, pp, winners,
                 errs.append("trick %d seat %d: player %d, expected %d"
                             % (t + 1, k, p, order[k]))
 
-            card = tuple(_decode(ps[t, k], pv[t, k]))
+            card = tuple(decode_card(ps[t, k], pv[t, k]))
             if card not in remaining[p]:
                 errs.append("trick %d: player %d played %s which it does not hold"
                             % (t + 1, p, card))

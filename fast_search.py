@@ -543,8 +543,18 @@ def solve_line(hands, starting_player, caller, alone=False):
     return _final(caller_tricks, alone_flag), play_s, play_v, play_p, winners
 
 
-def _decode(suit, strength):
-    """(suit, strength) -> the original 2D vector representation."""
+def decode_card(suit, strength):
+    """
+    One `(suit, strength)` pair -> the 2D vector `rotation` speaks.
+
+    `solve_line` hands back its play in the search's own planes, which are of
+    no use to a caller that wants card names. This is the inverse of
+    `encode_hands` for a single card, and composing it with
+    `rotation.card_from_engine` is how a line becomes readable. It lives here
+    rather than in `rotation` because the encoding is this module's, and it
+    returns the vector rather than the card because this module imports
+    nothing from the repo and is not about to start.
+    """
     if suit == 0:
         return [int(strength), 0]
     if suit == 2:
@@ -585,7 +595,8 @@ def definitive_winner(dealt_hands, starting_player, caller, verbose=False,
         print("Seat %d called alone; seat %d sits out."
               % (int(caller), sitting_seat(caller)))
     for t in range(ps.shape[0]):
-        cards = [_decode(ps[t, k], pv[t, k]) for k in range(ps.shape[1])]
+        cards = [decode_card(ps[t, k], pv[t, k])
+                 for k in range(ps.shape[1])]
         order = [int(pp[t, k]) for k in range(pp.shape[1])]
         print("Trick %d: %s  (played by %s)" % (t + 1, cards, order))
         print("Trick %d winner: %d" % (t + 1, winners[t]))

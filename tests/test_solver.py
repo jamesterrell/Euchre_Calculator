@@ -28,7 +28,7 @@ import unittest
 import numpy as np
 
 import euchre_testkit as k
-from fast_search import solve, solve_line, definitive_winner, _decode
+from fast_search import solve, solve_line, definitive_winner, decode_card
 from reference_solver import solve_py, hands_to_py
 
 # The canonical fixture, also in test_hand.txt. True value 2 with
@@ -71,7 +71,7 @@ def random_deals(n, seed):
 
 def played_card(ps, pv, trick, seat):
     """The card name fast_search reports at [trick, seat] of a returned line."""
-    return k.name_of(np.array(_decode(ps[trick, seat], pv[trick, seat])))
+    return k.name_of(np.array(decode_card(ps[trick, seat], pv[trick, seat])))
 
 
 class TestKnownPositions(unittest.TestCase):

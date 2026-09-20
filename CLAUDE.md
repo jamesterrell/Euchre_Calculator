@@ -171,6 +171,7 @@ players.py         decision rules: GodModePlayer, PIMCPlayer, RandomPlayer
 pimc_sweep.py      measures a PIMC sim table against the God Mode one
 pimc_example.py    one deal, every decision narrated -- read this one first
 hand_ev.py         EV of one pinned hand, played out by a PIMC sim table
+api.py             the two questions a front end asks: evaluate() and solve()
 tests/             the suite, see "Testing" below
   euchre_testkit.py  fixtures: named cards, line replay, and an exhaustive
                      no-pruning minimax used as the ground-truth oracle
@@ -185,6 +186,7 @@ tests/             the suite, see "Testing" below
   test_fast_search.py randomised regression sweep for fast_search
   test_bitcore.py    bitcore against fast_search: whole deals and positions
   test_fastsim.py    the compiled sweep against the readable one
+  test_api.py        the front end's two entry points
 archive/           superseded code, see "Archived approaches" below
 ```
 
@@ -1095,6 +1097,64 @@ engine is already three orders of magnitude past what that was worth;
 `pimc_sweep.py` and `pimc_example.py` are untouched and still run on
 `table.py` and `players.py`. `pimc_example.py` narrates a deal decision by
 decision, which is a thing the compiled engine cannot do and should not try to.
+
+## The front end's two entry points
+
+`api.py` is the layer a UI calls, and it computes almost nothing itself. Two
+functions, because there are two products:
+
+```python
+evaluate(hand, up_card, seat, dealer, deals=1000) -> Evaluation
+solve(hands, up_card, dealer, seat=None)          -> Solution
+```
+
+`evaluate` is the calculator: one seat's view, sampled, through
+`hand_ev.run_fast` three times -- once per action. About **7 s for 1,000
+deals** on ten threads. `solve` is the microscope: every card visible, no
+sampling, the God Mode auction plus the minimax line of play, about **100 ms**
+on the readable Python path. Compiling `solve` would be pointless at that
+speed, and `bitcore` cannot recover a line anyway.
+
+Four decisions are baked in, all of them settled by measurement in
+`notes/front_end.md`:
+
+- **Absolute EV per action, not a comparison between them.** "Order this and
+  you score +0.9" is something a player can check against their own
+  experience; "order beats pass by 0.15" is an abstraction. It is also the
+  shape `bidding.first_bid_options` already returns.
+- **The mean is over the deals the auction reached the seat on**
+  (`Record.forced`), not all of them. This is not a detail: pricing the call
+  on every deal instead gives the *opposite* advice about going alone, because
+  the deals you never get to bid on are the ones an opponent opened. Over
+  10,000 deals on `TH AS AD KD JD`, ordering is +0.895 reached-you against
+  +0.791 pinned, and going alone +0.982 against +0.700.
+- **`deals` is the dial, the eval counts are not.** At 10,000 deals, raising
+  worlds-per-decision sixteenfold moved the answer by less than the error bar
+  and cost 4.5x the time. Both are exposed; only `deals` belongs in front of a
+  user. That was one hand at one epsilon and is not a flatness claim.
+- **Going alone needs about four times the deals** for the same precision --
+  its outcomes run -2..+4 rather than -2..+2 -- so `Evaluation.best()` is a
+  convenience and explicitly not advice. Show the intervals.
+
+Every result is a frozen dataclass with `as_dict()` returning plain JSON --
+cards as `"JS"`, suits as `"spades"` -- so a web layer never sees a
+`rotation.Card`.
+
+`tests/test_api.py` tests the thin-layer failures rather than the Euchre: that
+the reported line is one that could actually have been played (replayed
+against the rules, because a wrong decode still looks like a card), that an
+`ActionEV`'s mean is the mean of the outcomes its own trick breakdown
+describes, that the population is the promised one, and that `as_dict()` is
+JSON all the way down.
+
+**`fast_search._decode` is now `decode_card` and public**, because turning
+`solve_line`'s planes back into cards is something a caller outside that
+module has to do. It still returns the vector rather than the card, because
+`fast_search` imports nothing from this repo and is not about to start;
+composing it with `rotation.card_from_engine` is the caller's job.
+**`bidding.bid_options(deal, seat)`** is `first_bid_options` from any seat,
+which is what a front end wants once the asker is not the eldest hand; the old
+name stays as the eldest-seat case.
 
 ## Archived approaches
 
