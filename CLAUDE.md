@@ -29,7 +29,7 @@ Tests. The unit suite is stdlib `unittest`, so it needs nothing beyond numpy
 and numba:
 
 ```bash
-python -m unittest discover               # whole suite, 425 tests, ~140s
+python -m unittest discover               # whole suite, 431 tests, ~110s
 python -m unittest tests.test_solver      # one module
 python -m unittest tests.test_solver.TestLeftBower -v
 python tests/test_solver.py               # or run a file directly
@@ -99,7 +99,7 @@ python hand_ev.py "JS AS 9H 9D TC" --up 9S --engine python   # the old path
 **`hand_ev.py` runs compiled by default** -- `fastsim.py` over `bitcore.py`,
 which is this repo's model with every layer above the solver rewritten as
 integers and njit. Ten thousand deals at the default budgets now take **about
-twenty-two seconds** on ten threads, against about twenty-seven minutes on the
+twenty seconds** on ten threads, against about twenty-seven minutes on the
 Python path. See "The compiled engine" below for what it is and what holds the
 two to the same answers; `--engine python` is still there and is what the unit
 suite drives.
@@ -894,9 +894,9 @@ dealer 0, `--assume order`, default budgets, `--epsilon 0.05`, ten workers:
 | engine | deals  | wall     | per deal  | EV over all deals |
 | ------ | ------ | -------- | --------- | ----------------- |
 | python |  4,000 | 10.9 min | 0.163 s   | +0.926 +/- 0.036  |
-| fast   | 10,000 | 22 s     | 0.0022 s  | +0.912 +/- 0.023  |
+| fast   | 10,000 | 20 s     | 0.0020 s  | +0.912 +/- 0.023  |
 
-**74x a deal, and the same answer**: the means differ by 0.014 against a
+**82x a deal, and the same answer**: the means differ by 0.014 against a
 combined interval of 0.043, the calling rates are 88.3% and 88.8%, and the
 euchre rates 11.4% and 12.0%. They do not agree *deal by deal* and cannot --
 `random.Random` does not exist inside njit, so the compiled engine carries its
@@ -911,11 +911,11 @@ loners are on the table and hands get passed in:
 
     engine   deals    per deal    EV to your team    you called   euchred
     python    1,500   0.2615 s    -0.445 +/- 0.078   70.3%        52.1%
-    fast     20,000   0.0061 s    -0.487 +/- 0.021   70.2%        52.2%
+    fast     20,000   0.0022 s    -0.487 +/- 0.021   70.2%        52.2%
 
-43x here rather than 74x, because this hand spends its time bidding -- 349
-sampled worlds a deal against 50 -- and bidding is the part that shares least
-through the transposition table. The two means differ by 0.042 against a
+119x here, because this hand spends its time bidding -- 349 sampled worlds a
+deal against 50 -- and bidding is where the value bounds on the score pay
+most. The two means differ by 0.042 against a
 combined interval of 0.081, and the auction profiles line up to a fraction of
 a point: partner calls 4.7% and 4.8%, opponents 25.0% and 24.8%, spades named
 88.0% and 86.6%. The compiled engine also passes 28 of 20,000 deals in, which
@@ -1021,7 +1021,7 @@ Two design choices were measured rather than assumed, and one of them
   addresses. See `notes/equivalence.md`; it was rechecked only because a
   different bug forced a recheck.
 - **Size now matters much less than it did.** Same run: 2^24 slots (134 MB)
-  24.2 s, 2^25 23.1 s, 2^26 (537 MB) 21.9 s, 2^27 (1.1 GB) 21.4 s. Before the
+  23.1 s, 2^25 21.6 s, 2^26 (537 MB) 20.3 s, 2^27 (1.1 GB) 19.4 s. Before the
   value bounds it was 91 s at 2^24. `hand_ev.py` scales the default with the
   sweep, stops at 2^26, and never takes more than an eighth of the machine.
 

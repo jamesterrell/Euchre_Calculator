@@ -98,9 +98,9 @@ today's default budgets at `--epsilon 0.05`, ten workers:
 
     engine   deals    wall       per deal    EV over all deals
     python   4,000    10.9 min   0.163 s     +0.926 +/- 0.036
-    fast    10,000    22 s       0.0022 s    +0.912 +/- 0.023
+    fast    10,000    20 s       0.0020 s    +0.912 +/- 0.023
 
-**74x per deal, and the same answer** -- the two means differ by 0.014 against
+**82x per deal, and the same answer** -- the two means differ by 0.014 against
 a combined interval of 0.043, and the two engines call the hand at 88.3% and
 88.8% and are euchred on 11.4% and 12.0% of what they call. They do not agree
 deal by deal and cannot: `random.Random` does not exist inside njit, so the
@@ -115,11 +115,11 @@ loners are on the table and hands get passed in:
 
     engine   deals    per deal    EV to your team    you called   euchred
     python    1,500   0.2615 s    -0.445 +/- 0.078   70.3%        52.1%
-    fast     20,000   0.0061 s    -0.487 +/- 0.021   70.2%        52.2%
+    fast     20,000   0.0022 s    -0.487 +/- 0.021   70.2%        52.2%
 
-43x here rather than 74x, because this hand spends its time bidding -- 349
-sampled worlds a deal against 50 -- and bidding is the part that shares least
-through the transposition table. The two means differ by 0.042 against a
+119x here, because this hand spends its time bidding -- 349 sampled worlds a
+deal against 50 -- and bidding is where the value bounds on the score pay
+most. The two means differ by 0.042 against a
 combined interval of 0.081, and the auction profiles line up to a fraction of
 a point: partner calls 4.7% and 4.8%, opponents 25.0% and 24.8%, spades named
 88.0% and 86.6%. The compiled engine also passes 28 of 20,000 deals in, which
@@ -155,8 +155,8 @@ they do.
 
 `--workers` is threads under the compiled engine and processes under the Python
 one. Neither scales with the core count. Over 4,000 deals on a 12-thread
-machine the compiled engine ran 62.6 s on one thread, 19.8 s on four, 10.0 s on
-ten and 9.0 s on twelve -- 7.0x at the top, not 12x. The process pool measured
+machine the compiled engine ran 4,000 deals in 56.7 s on one thread, 16.4 s on
+four, 9.2 s on ten and 8.2 s on twelve -- 6.9x at the top, not 12x. The process pool measured
 4.6x. Results do not depend on the worker count -- every deal seeds itself from
 its own index -- so a parallel run and a serial one give the same number, which
 is the cheapest available check that the parallel path is sound. The *node*
@@ -167,7 +167,7 @@ what comes out.
 
 `--tt-bits` sizes the compiled engine's transposition table, which every thread
 shares and nothing ever clears. On the run above, 2^24 slots (134 MB) takes
-24.2 s, 2^25 (268 MB) 23.1 s, 2^26 (537 MB) 21.9 s and 2^27 (1.1 GB) 21.4 s --
+23.1 s, 2^25 (268 MB) 21.6 s, 2^26 (537 MB) 20.3 s and 2^27 (1.1 GB) 19.4 s --
 a flat curve, and it was not always: before the value bounds went into the
 search it was 91 s at 2^24 against 47 s at 2^26. The default scales with the
 sweep, stops at 2^26, and never takes more than an eighth of the machine.
@@ -467,10 +467,10 @@ ENGINES = (FAST, PYTHON)
 # runtime. Measured on `TH AS AD KD JD` with `9H` up, 10,000 deals at ten
 # threads, at 8 bytes a slot:
 #
-#     2^24   134 MB   35 s
-#     2^25   268 MB   27 s
-#     2^26   537 MB   22 s
-#     2^27   1.1 GB   21 s
+#     2^24   134 MB   23.1 s
+#     2^25   268 MB   21.6 s
+#     2^26   537 MB   20.3 s
+#     2^27   1.1 GB   19.4 s
 #
 # So 2^26 is the cap: the gigabyte past it buys 4%. The default scales with
 # the sweep and then takes no more than an eighth of the machine's memory,

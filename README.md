@@ -207,7 +207,7 @@ bids for itself, so the mean mixes the deals it called with the deals somebody
 else called first -- `--assume order` pins the opening bid and conditions on it,
 which is why the run above reports 100%.
 
-Cost: **17 seconds** for those 10,000 deals on ten threads -- 4.5 million
+Cost: **16 seconds** for those 10,000 deals on ten threads -- 4.5 million
 complete Euchre hands and 9 million part-played ones solved inside them, and
 1.4 billion positions looked at. It took 41 minutes until the engine
 was compiled -- `bitcore.py` is the solver as bitboards over a card space where
@@ -360,7 +360,7 @@ functions compile on first call in a fresh process, about 15 s.
 Standard library `unittest`; nothing extra to install.
 
 ```bash
-python -m unittest discover             # 399 tests, ~110s with JIT warmup
+python -m unittest discover             # 431 tests, ~110s with JIT warmup
 python -m unittest tests.test_solver    # one module
 python tests/test_fast_search.py 2000   # randomised regression sweep
 ```

@@ -975,7 +975,7 @@ playing the situation out thousands of times and counting what scores best.
 
 ### What the run costs
 
-Ten thousand deals on ten threads: **17 seconds**.
+Ten thousand deals on ten threads: **16 seconds**.
 
 It was 41 minutes. Nothing about the model changed -- same sampling, same
 budgets, same stopping rule, and the number it prints is the same number, which
