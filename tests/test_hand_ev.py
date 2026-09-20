@@ -186,6 +186,28 @@ class TestRoles(unittest.TestCase):
                 self.assertIn(h.role_of(caller, seat), h.ROLES)
 
 
+    def test_a_pinned_pass_marks_its_calls_as_round_two(self):
+        """
+        `--assume pass` pins the *opening* bid, and nothing after it.
+
+        So a seat told to pass can still take the contract in round two, and
+        the line saying so reads like a bug until it says which round -- which
+        it now does. See `players.ForcedOpeningBid`, and `role_label`.
+        """
+        setup = a_setup(assume=h.ASSUME_PASS)
+        self.assertEqual(h.role_label("you called", setup),
+                         "you called (round two)")
+
+    def test_no_other_label_is_touched(self):
+        for assume in h.ASSUMPTIONS:
+            setup = a_setup(assume=assume)
+            for role in h.ROLES:
+                if assume == h.ASSUME_PASS and role == "you called":
+                    continue
+                self.assertEqual(h.role_label(role, setup), role,
+                                 "%r under --assume %s" % (role, assume))
+
+
 class TestTheSeatsScale(unittest.TestCase):
     """
     Every reported number is on the asking seat's own team's scale.
