@@ -163,10 +163,12 @@ hand and `a` is out of play for good, and conversely. Only one of them is ever
 played, so no trick contains both, and the rest of the argument is unchanged.
 ∎
 
-This is `fastsim.discard_reps`. It applies to the dealer's five candidates in
-`order_up_value` and to the six the PIMC dealer is choosing among, and which
-cards it collapses depends on the sampled world, because the world says what is
-in the kitty.
+This is `fastsim.discard_reps`, and both its call sites -- `order_up_value` and
+the PIMC dealer -- choose among **five**. The dealer holds six once it has
+picked up, but the up-card is in the hand to stay and may not be buried. It is
+still live, though, so it can be the card that keeps two candidates apart.
+Which of the five collapse depends on the sampled world, since the world says
+what is in the kitty.
 
 ---
 
