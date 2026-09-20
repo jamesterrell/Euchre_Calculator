@@ -223,6 +223,22 @@ indifference band that stops sampling an option once it provably cannot catch
 the leader, or cannot matter if it does. `CLAUDE.md` has what the band costs
 and what it changes.
 
+## The calculator, in a browser
+
+```bash
+python server.py --workers 10      # then open http://127.0.0.1:8000
+```
+
+Two tabs. **Evaluate a hand** asks what five cards are worth to a table that
+cannot see them -- a number per action, with its error bar, over the deals the
+auction actually reaches you on. **Solve a whole deal** takes all four hands
+and answers exactly: the auction God Mode runs, and every card of the optimal
+line.
+
+Standard library only, no build step, and it binds to localhost. The first run
+after a fresh checkout compiles for about eighty seconds; the page says so
+rather than hanging.
+
 ## Installation
 
 ```bash
@@ -349,6 +365,8 @@ functions compile on first call in a fresh process, about 15 s.
 ├── pimc_example.py           # One deal, every decision printed
 ├── hand_ev.py                # What one pinned hand is worth, played out
 ├── api.py                    # evaluate() and solve(), for a front end
+├── server.py                 # a local web server over api.py
+├── static/index.html         # the page it serves
 ├── interface.ipynb           # One worked example, notebook form
 ├── docs/writeup.md           # The engine explained for Euchre players
 ├── notes/                    # Measurements, and the proofs behind bitcore

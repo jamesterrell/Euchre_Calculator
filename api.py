@@ -53,6 +53,8 @@ types -- cards as `"JS"`, suits as `"spades"` -- so a web layer can serialise
 one without knowing anything about `rotation.Card`.
 """
 import math
+import random
+import threading
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence, Tuple
 
@@ -73,6 +75,13 @@ _ASSUME = {ORDER: hand_ev.ASSUME_ORDER,
            PASS: hand_ev.ASSUME_PASS}
 
 DEALS = 1000
+
+# Roughly what one deal costs, across all three actions, on ten threads. Only
+# ever used to quote a wait time before a query runs -- the cost is linear in
+# `deals`, which is what makes quoting one possible at all. Measured on a
+# 12-thread machine; a slower one will overrun the estimate and the page says
+# "about".
+SECONDS_PER_DEAL = 0.0057
 
 
 # ------------------------------------------------------------------- input
@@ -259,7 +268,7 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
              allow_loners: bool = True, stick: bool = False,
              epsilon: Optional[float] = hand_ev.EPSILON,
              workers: int = 1, seed: int = 0,
-             tt_bits: Optional[int] = None) -> Evaluation:
+             tt_bits: Optional[int] = None, table=None) -> Evaluation:
     """
     What this hand is worth, per action, to a table that cannot see it.
 
@@ -279,6 +288,9 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
             than narrowing it, and the measured defaults are hard to beat.
         workers: threads. One query already uses every core it is given, so a
             server should serialise queries rather than run them in parallel.
+        table: a transposition table from `hand_ev.new_table`, to reuse across
+            queries instead of allocating 134 MB per call. `Engine` does this
+            for you.
 
     Returns an `Evaluation`. Each action's mean is taken over the deals the
     auction reached this seat on, which is the population a player faces.
@@ -315,7 +327,7 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
             seed=seed, epsilon=epsilon, assume=_ASSUME[name],
             let_auction_play=True)
         records, _, _ = hand_ev.run_fast(setup, deals, workers=workers,
-                                         tt_bits=tt_bits)
+                                         tt_bits=tt_bits, table=table)
         out.append(_summarise(name, records, seat))
 
     return Evaluation(hand=hand, up_card=up_card, seat=seat, dealer=dealer,
@@ -406,3 +418,71 @@ def solve(hands, up_card, dealer: int = 3, seat: Optional[int] = None,
                     discard=contract.discard, value=outcome.value,
                     caller_score=caller_score, caller_tricks=won,
                     tricks=tricks, options=options, options_seat=seat)
+
+
+# ----------------------------------------------------------------- engine
+
+
+class Engine:
+    """
+    A warm process: one transposition table, one thread count, one query.
+
+    Three things a long-lived process needs and a bare function call does not:
+
+    **A table that survives.** `run_fast` allocates 134 MB per call otherwise,
+    and `evaluate` makes three. It is never cleared and its entries are keyed
+    by everything their value depends on, so a query inherits whatever the
+    last one learned -- the table is not just reused, it gets warmer.
+
+    **A lock.** One query already uses every core it is given. Two at once
+    oversubscribe numba's thread pool and both get slower, so queries are
+    serialised rather than run in parallel. An HTTP server in front of this
+    wants a queue, not a thread pool.
+
+    **A warm-up.** The first call into the compiled engine pays about 1.2 s
+    loading the cached machine code, and ~80 s *compiling* it if the cache is
+    cold -- which it is after any edit to `bitcore.py` or `fastsim.py`. `warm()`
+    gets that over with at boot so no user wears it. `ready` says whether it
+    has happened.
+    """
+
+    def __init__(self, workers: int = 1, tt_bits: Optional[int] = None,
+                 deals: int = DEALS):
+        self.workers = max(1, int(workers))
+        self._table = hand_ev.new_table(tt_bits, deals)
+        self._lock = threading.Lock()
+        self._ready = False
+
+    @property
+    def ready(self) -> bool:
+        return self._ready
+
+    @property
+    def busy(self) -> bool:
+        return self._lock.locked()
+
+    def warm(self) -> None:
+        """Force the compiled code to load, on a query nobody is waiting for."""
+        with self._lock:
+            if not self._ready:
+                evaluate("JS AS 9H 9D TC", "9S", seat=0, dealer=3, deals=2,
+                         play_sims=1, bid_sims=1, discard_sims=1,
+                         workers=self.workers, table=self._table)
+                # A real deal rather than four hands written out, so the
+                # warm-up cannot go stale by dealing a card twice.
+                dealt = game.deal_random(rng=random.Random(0), dealer=3)
+                solve(dealt.hands, dealt.up_card, dealer=3)
+                self._ready = True
+
+    def evaluate(self, hand, up_card, seat: int = 0, dealer: int = 3,
+                 deals: int = DEALS, **kw) -> Evaluation:
+        kw.setdefault("workers", self.workers)
+        with self._lock:
+            self._ready = True
+            return evaluate(hand, up_card, seat=seat, dealer=dealer,
+                            deals=deals, table=self._table, **kw)
+
+    def solve(self, hands, up_card, dealer: int = 3, **kw) -> Solution:
+        with self._lock:
+            self._ready = True
+            return solve(hands, up_card, dealer=dealer, **kw)

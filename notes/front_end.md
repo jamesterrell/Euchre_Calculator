@@ -226,18 +226,36 @@ line.
    threads. The two gaps named above are closed -- `fast_search.decode_card` is
    public, and `bidding.bid_options(deal, seat)` asks the round-one question
    from any seat.
-2. **Hoist the transposition table** out of `run_fast` so a long-lived process
-   keeps one instead of allocating 134 MB per call. `evaluate` makes three
-   calls, so this is ~0.3 s of a 7.3 s query -- worth doing before the server,
-   not before anything else.
-3. **The server.** Boot with a throwaway query and a visible building state,
-   because a cold numba cache is 80 s rather than 1.9. Serialise queries
-   behind a lock: one query already uses every core, and two at once
-   oversubscribe numba's thread pool and make both slower.
-4. **The UI.**
+2. ~~**Hoist the transposition table.**~~ **Done** -- `hand_ev.new_table`, and
+   `run_fast(..., table=)`. `api.Engine` holds one for the life of a process.
+   Worth more than the allocation it saves: the table is never cleared, so
+   queries warm each other. On the worked example at 1,000 deals, 7.3 s with a
+   fresh table each call against 5.0 s with a shared one by the third query.
+3. ~~**The server.**~~ **Done** -- `server.py`, standard library only, and
+   `static/index.html` as one file with no build step. It warms in a
+   background thread and answers 503 until ready, serialises queries behind
+   `Engine`'s lock, and closes the connection on every refusal. That last one
+   was a real bug: HTTP/1.1 reuses connections, and a request whose body was
+   never read leaves bytes in the socket that the next request gets parsed out
+   of. `tests/test_server.py` found it; curl by hand had not.
+4. ~~**The UI.**~~ **Done** -- two tabs over the two functions. The deals
+   slider quotes its own wait from `api.SECONDS_PER_DEAL`, the intervals are
+   drawn rather than only printed, and when they overlap the page says so
+   instead of letting "highest" read as advice.
 
-Nothing in (2) or (3) changes `api.py`'s shape, which was the point of doing
-it first.
+Nothing in (2), (3) or (4) changed `api.py`'s shape, which was the point of
+doing it first.
+
+## What is still not here
+
+- **Game score.** `Deal` is one hand; there is no running 10-point game, so
+  no "we are at 9, do I order anything?". Roadmap section 1's last unchecked
+  box, and probably the thing a Euchre player asks for first.
+- **Heuristic opponents.** The table is four PIMC players. Roadmap section 2.
+- **Defending alone.**
+- **Concurrency.** Queries serialise, which is right for one user on one
+  machine and wrong for anything else. So is binding to localhost with no
+  authentication.
 
 ## Notes for whoever writes the server
 

@@ -603,8 +603,23 @@ def _from_row(row, setup: Setup, god: bool) -> Record:
                   forced=bool(row[fastsim.R_FORCED]))
 
 
+def new_table(bits: Optional[int] = None, deals: int = DEALS):
+    """
+    A transposition table a caller can hold on to across queries.
+
+    `run_fast` makes one per call otherwise, and at the default size that is
+    134 MB of zeroing every time. A long-lived process should make one of
+    these at boot and pass it in -- it is never cleared, so entries from the
+    last query are still true for the next one and the table only gets warmer.
+    """
+    import numpy as np
+
+    return np.zeros(1 << (bits if bits is not None else tt_bits_for(deals)),
+                    dtype=np.int64)
+
+
 def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
-             progress=None, tt_bits: Optional[int] = None):
+             progress=None, tt_bits: Optional[int] = None, table=None):
     """
     The sweep, compiled. Same arguments and same answers as `run`.
 
@@ -618,6 +633,12 @@ def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
     per-thread tallies -- nodes searched, and the worlds and solves each kind
     of decision paid for. `report_spend` prints them; they are the numbers to
     look at first when a sweep is slower than it should be.
+
+    `table` is a transposition table from `new_table` to use instead of
+    allocating one. It is never cleared and its entries are keyed by
+    everything their value depends on, so sharing it across queries is both
+    safe and faster -- see "The compiled engine" in CLAUDE.md. Pass one from a
+    server; leave it None and each call pays for its own.
 
     `prune_discards` is not supported: it is an unproven axiom, it buys 1.09x,
     and this engine is already three orders of magnitude past what it was
@@ -641,8 +662,7 @@ def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
     up = _card_id(setup.up_card) if setup.up_card is not None else -1
 
     pass_models, assumptions = codes(fastsim)
-    bits = tt_bits if tt_bits is not None else tt_bits_for(deals)
-    tt = np.zeros(1 << bits, dtype=np.int64)
+    tt = table if table is not None else new_table(tt_bits, deals)
     out = np.zeros((deals, fastsim.RECORD), dtype=np.int64)
     god = np.zeros((deals if both else 1, fastsim.RECORD), dtype=np.int64)
     counters = np.zeros((chunks, fastsim.COUNTERS), dtype=np.int64)

@@ -1,0 +1,387 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Euchre calculator</title>
+
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfaf7; --fg: #1b1a17; --dim: #6b6862; --line: #ddd8cf;
+    --card: #fff; --accent: #2f6f4e; --bad: #9c3b2e; --warn: #8a6d1f;
+    --pad: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17181a; --fg: #e9e6e0; --dim: #9a968e; --line: #33353a;
+      --card: #1f2124; --accent: #6bbd8e; --bad: #e08373; --warn: #d8b44a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: var(--pad); }
+  h1 { font-size: 1.35rem; margin: 1.2rem 0 .2rem; letter-spacing: -.01em; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+       color: var(--dim); margin: 1.6rem 0 .6rem; font-weight: 600; }
+  p.lede { color: var(--dim); margin: 0 0 1.4rem; }
+  fieldset { border: 1px solid var(--line); border-radius: 10px;
+             background: var(--card); padding: 14px; margin: 0 0 14px; }
+  legend { padding: 0 6px; color: var(--dim); font-size: .78rem;
+           text-transform: uppercase; letter-spacing: .07em; }
+  label { display: block; font-size: .8rem; color: var(--dim); margin-bottom: 4px; }
+  input, select, button, textarea {
+    font: inherit; color: inherit; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px;
+  }
+  input[type=text] { width: 100%; font-family: ui-monospace, monospace; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .row > div { flex: 1 1 130px; min-width: 0; }
+  button.go {
+    background: var(--accent); color: #fff; border-color: transparent;
+    font-weight: 600; padding: 9px 18px; cursor: pointer;
+  }
+  button.go:disabled { opacity: .5; cursor: default; }
+  .note { font-size: .8rem; color: var(--dim); margin-top: 8px; }
+  .err { color: var(--bad); font-size: .85rem; margin-top: 10px; }
+
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--dim); font-weight: 600; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ev { font-size: 1.05rem; font-weight: 600; }
+  .pm { color: var(--dim); font-weight: 400; }
+  .bar { position: relative; height: 8px; background: var(--line);
+         border-radius: 4px; min-width: 90px; }
+  .bar i { position: absolute; top: 0; height: 8px; background: var(--accent);
+           opacity: .45; border-radius: 4px; }
+  .bar b { position: absolute; top: -2px; width: 2px; height: 12px;
+           background: var(--fg); }
+  .scroll { overflow-x: auto; }
+  code { font-family: ui-monospace, monospace; font-size: .92em; }
+  .tag { display: inline-block; font-size: .72rem; padding: 1px 7px;
+         border: 1px solid var(--line); border-radius: 999px; color: var(--dim); }
+  .status { font-size: .8rem; color: var(--dim); }
+  .status.warn { color: var(--warn); }
+  .caveat { border-left: 3px solid var(--line); padding: 2px 0 2px 12px;
+            color: var(--dim); font-size: .85rem; margin-top: 14px; }
+  .tabs { display: flex; gap: 6px; margin: 1.6rem 0 .8rem; }
+  .tabs button { cursor: pointer; }
+  .tabs button[aria-selected=true] { background: var(--card);
+                                     border-color: var(--fg); font-weight: 600; }
+</style>
+
+<main>
+  <h1>Euchre calculator</h1>
+  <p class="lede">
+    What a hand plays for, against a table that cannot see it.
+    <span class="status" id="health">checking…</span>
+  </p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-eval" aria-selected="true">Evaluate a hand</button>
+    <button role="tab" id="tab-solve" aria-selected="false">Solve a whole deal</button>
+  </div>
+
+  <!-- ------------------------------------------------- evaluate -->
+  <section id="panel-eval">
+    <form id="form-eval">
+      <fieldset>
+        <legend>Your hand</legend>
+        <div class="row">
+          <div style="flex: 3 1 260px">
+            <label for="hand">Five cards</label>
+            <input type="text" id="hand" value="TH AS AD KD JD" spellcheck="false"
+                   autocapitalize="characters">
+          </div>
+          <div>
+            <label for="up">Up-card</label>
+            <input type="text" id="up" value="9H" spellcheck="false"
+                   autocapitalize="characters">
+          </div>
+        </div>
+        <div class="note">Rank then suit, e.g. <code>JS</code>, <code>TH</code>, <code>9D</code>.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Table</legend>
+        <div class="row">
+          <div>
+            <label for="seat">Your seat</label>
+            <select id="seat"><option>0</option><option>1</option>
+              <option selected>2</option><option>3</option></select>
+          </div>
+          <div>
+            <label for="dealer">Dealer</label>
+            <select id="dealer"><option selected>0</option><option>1</option>
+              <option>2</option><option>3</option></select>
+          </div>
+          <div style="flex: 2 1 220px">
+            <label for="deals">Deals <span id="deals-label"></span></label>
+            <input type="range" id="deals" min="100" max="10000" step="100"
+                   value="1000" style="width: 100%; padding: 0">
+          </div>
+        </div>
+        <div class="note" id="speak"></div>
+      </fieldset>
+
+      <button class="go" id="run-eval" type="submit">Evaluate</button>
+      <span class="status" id="eval-status"></span>
+      <div class="err" id="eval-error" hidden></div>
+    </form>
+
+    <div id="eval-out" hidden>
+      <h2>What it plays for</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th>Action</th><th>Points per deal</th><th></th>
+            <th>March</th><th>Made</th><th>Euchred</th>
+          </tr></thead>
+          <tbody id="eval-rows"></tbody>
+        </table>
+      </div>
+      <div class="caveat" id="eval-caveat"></div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------- solve -->
+  <section id="panel-solve" hidden>
+    <form id="form-solve">
+      <fieldset>
+        <legend>All four hands</legend>
+        <div class="row" id="solve-hands"></div>
+      </fieldset>
+      <fieldset>
+        <legend>Table</legend>
+        <div class="row">
+          <div>
+            <label for="s-up">Up-card</label>
+            <input type="text" id="s-up" value="9H" spellcheck="false">
+          </div>
+          <div>
+            <label for="s-dealer">Dealer</label>
+            <select id="s-dealer"><option>0</option><option>1</option>
+              <option>2</option><option selected>3</option></select>
+          </div>
+          <div>
+            <label for="s-seat">Show options for</label>
+            <select id="s-seat"><option value="">nobody</option>
+              <option value="0" selected>seat 0</option><option value="1">seat 1</option>
+              <option value="2">seat 2</option><option value="3">seat 3</option></select>
+          </div>
+        </div>
+      </fieldset>
+      <button class="go" id="run-solve" type="submit">Solve</button>
+      <span class="status" id="solve-status"></span>
+      <div class="err" id="solve-error" hidden></div>
+    </form>
+
+    <div id="solve-out" hidden>
+      <h2>Auction</h2>
+      <div id="solve-auction"></div>
+      <h2>Play</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Trick</th><th>Cards</th><th>Won by</th></tr></thead>
+        <tbody id="solve-tricks"></tbody>
+      </table></div>
+      <div class="caveat">
+        Exact, not sampled: every seat sees every card and plays the minimax
+        line. That is a different question from the one above, and a stronger
+        opponent than anybody real.
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let perDeal = 0.0057;
+
+// ---------------------------------------------------------------- health
+async function health() {
+  try {
+    const r = await fetch("/api/health");
+    const h = await r.json();
+    perDeal = h.seconds_per_deal || perDeal;
+    const el = $("health");
+    if (!h.ready) {
+      el.textContent = "· warming up the engine (first run after an edit takes about 80s)";
+      el.className = "status warn";
+      setTimeout(health, 1500);
+    } else {
+      el.textContent = `· ready, ${h.workers} thread${h.workers === 1 ? "" : "s"}`;
+      el.className = "status";
+    }
+    document.querySelectorAll("button.go").forEach(b => b.disabled = !h.ready);
+  } catch (e) {
+    $("health").textContent = "· server not responding";
+    $("health").className = "status warn";
+    setTimeout(health, 2000);
+  }
+}
+
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+  const got = await r.json();
+  if (!r.ok) throw new Error(got.error || `HTTP ${r.status}`);
+  return got;
+}
+
+// ------------------------------------------------------------ evaluate
+const ORDER = ["order", "order alone", "pass"];
+
+function seatsBefore() {
+  const seat = +$("seat").value, dealer = +$("dealer").value;
+  let n = 0;
+  for (let i = 0; i < 4; i++) {
+    const s = (dealer + 1 + i) % 4;
+    if (s === seat) return n;
+    n++;
+  }
+  return n;
+}
+
+function refreshDeals() {
+  const d = +$("deals").value;
+  $("deals-label").textContent =
+    `— ${d.toLocaleString()}, about ${Math.max(1, Math.round(d * perDeal))}s`;
+  const before = seatsBefore();
+  $("speak").textContent =
+    before === 0 ? "You speak first."
+    : `${before} seat${before === 1 ? "" : "s"} speak before you — so the auction will not always reach you.`;
+}
+
+function bar(ev, lo, hi, span) {
+  const pos = (v) => Math.max(0, Math.min(1, (v - span[0]) / (span[1] - span[0]))) * 100;
+  return `<div class="bar" title="95% interval">
+            <i style="left:${pos(lo)}%; width:${Math.max(1.5, pos(hi) - pos(lo))}%"></i>
+            <b style="left:${pos(ev)}%"></b></div>`;
+}
+
+function showEvaluation(e) {
+  const acts = ORDER.map(n => e.actions.find(a => a.action === n)).filter(Boolean);
+  const lo = Math.min(...acts.map(a => a.ev - a.interval)) - 0.1;
+  const hi = Math.max(...acts.map(a => a.ev + a.interval)) + 0.1;
+  const best = acts.reduce((a, b) => (b.ev > a.ev ? b : a));
+
+  $("eval-rows").innerHTML = acts.map(a => {
+    const t = a.tricks || {}, n = t.contracts || 0;
+    const pct = (k) => n ? `${Math.round(100 * (t[k] || 0) / n)}%` : "—";
+    return `<tr>
+      <td>${a.action}${a === best ? ' <span class="tag">highest</span>' : ""}</td>
+      <td class="num"><span class="ev">${a.ev >= 0 ? "+" : ""}${a.ev.toFixed(3)}</span>
+          <span class="pm">± ${a.interval.toFixed(3)}</span></td>
+      <td>${bar(a.ev, a.ev - a.interval, a.ev + a.interval, [lo, hi])}</td>
+      <td class="num">${pct("march")}</td>
+      <td class="num">${pct("made")}</td>
+      <td class="num">${pct("euchred")}</td>
+    </tr>`;
+  }).join("");
+
+  const reach = acts[0] ? Math.round(100 * acts[0].reach_rate) : 100;
+  const overlap = acts.some(a => a !== best &&
+                            a.ev + a.interval >= best.ev - best.interval);
+  $("eval-caveat").innerHTML =
+    `Measured over the ${reach}% of deals where the auction reached you — the only
+     deals on which you ever face the choice. Trick shares are of the contracts
+     your team ended up with.` +
+    (overlap
+      ? ` <strong>The intervals overlap</strong>, so this run does not separate the
+          top actions. Going alone needs about four times the deals for the same
+          precision, because its outcomes run −2 to +4.`
+      : "");
+  $("eval-out").hidden = false;
+}
+
+$("deals").addEventListener("input", refreshDeals);
+$("seat").addEventListener("change", refreshDeals);
+$("dealer").addEventListener("change", refreshDeals);
+
+$("form-eval").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = $("run-eval"), status = $("eval-status"), err = $("eval-error");
+  err.hidden = true; btn.disabled = true;
+  const deals = +$("deals").value;
+  status.textContent = `· playing ${deals.toLocaleString()} deals three times…`;
+  const t0 = performance.now();
+  try {
+    const got = await post("/api/evaluate", {
+      hand: $("hand").value, up_card: $("up").value,
+      seat: +$("seat").value, dealer: +$("dealer").value, deals
+    });
+    showEvaluation(got);
+    status.textContent = `· ${((performance.now() - t0) / 1000).toFixed(1)}s`;
+  } catch (e) {
+    err.textContent = e.message; err.hidden = false; status.textContent = "";
+  } finally { btn.disabled = false; }
+});
+
+// --------------------------------------------------------------- solve
+const SAMPLE = ["AS KD JS JH AD", "TC KH AC KS TH",
+                "QS TS 9S JD 9D", "9C AH JC KC QH"];
+$("solve-hands").innerHTML = SAMPLE.map((h, i) =>
+  `<div style="flex:1 1 180px"><label for="h${i}">Seat ${i}</label>
+   <input type="text" id="h${i}" value="${h}" spellcheck="false"></div>`).join("");
+
+function showSolution(s) {
+  $("solve-auction").innerHTML =
+    `<div class="scroll"><table><tbody>` +
+    s.auction.map(l => `<tr><td>${l}</td></tr>`).join("") +
+    (s.passed_out
+      ? `<tr><td><strong>Nobody took it.</strong></td></tr>`
+      : `<tr><td><strong>seat ${s.caller} in ${s.trump}${s.alone ? ", alone" : ""}` +
+        `${s.discard ? ` (dealer pitched ${s.discard})` : ""} — ` +
+        `${s.caller_tricks} trick${s.caller_tricks === 1 ? "" : "s"}, ` +
+        `${s.caller_score >= 0 ? "+" : ""}${s.caller_score} to them</strong></td></tr>`) +
+    (s.options ? `<tr><td>Options for seat ${s.options_seat}: ` +
+       Object.entries(s.options).map(([k, v]) =>
+         `${k} <strong>${v >= 0 ? "+" : ""}${v}</strong>`).join(" · ") +
+       `</td></tr>` : "") +
+    `</tbody></table></div>`;
+  $("solve-tricks").innerHTML = s.tricks.map(t =>
+    `<tr><td class="num">${t.number}</td>
+     <td><code>${t.plays.map(p => `${p.card}<span class="pm">/${p.seat}</span>`).join("  ")}</code></td>
+     <td class="num">seat ${t.winner}</td></tr>`).join("")
+    || `<tr><td colspan="3" class="pm">no play — the deal was passed out</td></tr>`;
+  $("solve-out").hidden = false;
+}
+
+$("form-solve").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = $("run-solve"), status = $("solve-status"), err = $("solve-error");
+  err.hidden = true; btn.disabled = true; status.textContent = "· solving…";
+  try {
+    const seat = $("s-seat").value;
+    const got = await post("/api/solve", {
+      hands: [0, 1, 2, 3].map(i => $("h" + i).value),
+      up_card: $("s-up").value, dealer: +$("s-dealer").value,
+      seat: seat === "" ? null : +seat
+    });
+    showSolution(got);
+    status.textContent = `· ${(got.took_seconds * 1000).toFixed(0)} ms`;
+  } catch (e) {
+    err.textContent = e.message; err.hidden = false; status.textContent = "";
+  } finally { btn.disabled = false; }
+});
+
+// ----------------------------------------------------------------- tabs
+function tab(which) {
+  const on = which === "eval";
+  $("tab-eval").setAttribute("aria-selected", on);
+  $("tab-solve").setAttribute("aria-selected", !on);
+  $("panel-eval").hidden = !on;
+  $("panel-solve").hidden = on;
+}
+$("tab-eval").addEventListener("click", () => tab("eval"));
+$("tab-solve").addEventListener("click", () => tab("solve"));
+
+refreshDeals();
+health();
+</script>
