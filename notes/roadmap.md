@@ -63,8 +63,17 @@ cannot see the hand.
 
 ## 4. Front end
 
-- [ ] not started. Worth doing last: a UI mirrors an API that is about to change
-      substantially once players and loners land.
+- [ ] not started, but **no longer blocked**. The stated reason to wait was
+      that "a UI mirrors an API that is about to change substantially once
+      players and loners land" -- both have landed, and the compiled engine
+      (`bitcore.py`, `fastsim.py`) took a three-action query from minutes to
+      seconds. `notes/front_end.md` has the plan: what a query costs, which
+      sim axis is worth exposing, why the reported population is the deals the
+      auction reached the seat on, and the two functions to build first.
+- [ ] a perfect-information single-deal solve, as a feature in its own right.
+      Already exists in pieces and costs 59 ms warm -- `solve_bidding` for the
+      auction, `solve_line` for the play. Needs a public decoder and an
+      arbitrary-seat `first_bid_options`; see the same note.
 
 ## Two findings that bear on the ordering
 
