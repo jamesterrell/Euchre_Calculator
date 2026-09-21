@@ -1,1 +1,6 @@
 __pycache__/
+# Microsoft's card library, and the sprite sheet build_cards.py
+# cuts out of it. Neither is ours to redistribute; supply your own
+# copy of cards.dll and run `python build_cards.py`.
+cards.dll
+static/cards.png

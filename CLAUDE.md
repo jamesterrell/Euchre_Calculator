@@ -173,7 +173,8 @@ pimc_example.py    one deal, every decision narrated -- read this one first
 hand_ev.py         EV of one pinned hand, played out by a PIMC sim table
 api.py             the two questions a front end asks: evaluate() and solve()
 server.py          a local web server over api.py, standard library only
-static/index.html  the page it serves: one file, no build step
+static/index.html  the page it serves: one file, no bundler
+build_cards.py     cuts static/cards.png out of XP's cards.dll -- optional
 tests/             the suite, see "Testing" below
   euchre_testkit.py  fixtures: named cards, line replay, and an exhaustive
                      no-pruning minimax used as the ground-truth oracle
@@ -1193,9 +1194,36 @@ python server.py --workers 10          # http://127.0.0.1:8000
 python server.py --port 9000 --deals 2000
 ```
 
-Standard library only -- `ThreadingHTTPServer`, no Flask, no build step, and
+Standard library only -- `ThreadingHTTPServer`, no Flask, no bundler, and
 `static/index.html` is one file of vanilla HTML, CSS and JS. The repo's
 dependencies are still numpy, numba and jupyter.
+
+The page is styled as Windows XP Solitaire, and the cards are XP's own. They
+come from `cards.dll` -- the card library Windows shipped from 3.0 to XP --
+whose 52 faces are `RT_BITMAP` resources at 71x96. `build_cards.py` reads the
+24 a Euchre deck uses and writes `static/cards.png`, one sprite sheet, a row
+per suit and a column per rank in the page's own `SUITS` / `RANKS` order:
+
+```bash
+python build_cards.py cards.dll     # -> static/cards.png, 426x384
+```
+
+Three things about it are worth knowing.
+
+- **Both files are gitignored, and the page runs without them.** `cards.dll`
+  is Microsoft's and not ours to redistribute, so it is a build step rather
+  than a checked-in asset. `.pc` draws its own card -- rank over suit in two
+  corners, a pip in the middle -- and the page asks for the sheet once on
+  load, adding `real-cards` to the body only if it answers. Everything below
+  that swap is identical, since the drawn card is the same 71x96 box.
+- **Those bitmaps are older than Win32.** They carry a 12-byte
+  `BITMAPCOREHEADER` -- 16-bit dimensions, 3-byte palette entries -- not the
+  40-byte `BITMAPINFOHEADER`, and an `RT_BITMAP` resource has no
+  `BITMAPFILEHEADER` at all. `build_cards.py` handles both.
+- **The corners are cut to transparent.** Solitaire draws a card's rounded
+  corners as table, so they are flood-filled from each corner over white
+  pixels only. The outline is a closed loop in the suit's colour -- red for
+  the red suits -- which is why a fixed corner block would not do.
 
     GET  /                  the page
     GET  /api/health        {"ready", "busy", "workers", ...}
