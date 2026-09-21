@@ -1025,10 +1025,27 @@ Two design choices were measured rather than assumed, and one of them
   when the table is under pressure, since eight ways is also an eighth as many
   addresses. See `notes/equivalence.md`; it was rechecked only because a
   different bug forced a recheck.
-- **Size now matters much less than it did.** Same run: 2^24 slots (134 MB)
-  23.1 s, 2^25 21.6 s, 2^26 (537 MB) 20.3 s, 2^27 (1.1 GB) 19.4 s. Before the
-  value bounds it was 91 s at 2^24. `hand_ev.py` scales the default with the
-  sweep, stops at 2^26, and never takes more than an eighth of the machine.
+- **Size matters less than it did at 10,000 deals, and much more below that.**
+  Same run: 2^24 slots (134 MB) 23.1 s, 2^25 21.6 s, 2^26 (537 MB) 20.3 s,
+  2^27 (1.1 GB) 19.4 s. Before the value bounds it was 91 s at 2^24. That 14%
+  across 2^24 to 2^26 is what a long sweep sees; a short one sees far more:
+
+  | slots | 10,000 deals | 1,000 | 250 | 100 |
+  | ----- | ------------ | ----- | --- | --- |
+  | 2^23  |              | 11.68 s | 1.93 s | 0.56 s |
+  | 2^24  | 23.1 s       |  8.55 s | 1.20 s | 0.43 s |
+  | 2^25  | 21.6 s       |  5.74 s | 0.92 s | 0.39 s |
+  | 2^26  | 20.3 s       |  4.21 s | 0.85 s | 0.37 s |
+
+  Bigger is better at every sweep size and the gradient *steepens* as the
+  sweep shortens -- a short run searches the same positions and has fewer
+  deals to amortise a thrashing table over. So **the sweep size is the wrong
+  axis**, and `hand_ev.default_tt_bits()` does not use it: it takes 2^26
+  unless an eighth of the machine's memory is less than that. It used to scale
+  with `deals`, which put a 1,000-deal query on 2^24 and cost it 2x for no
+  saving -- the allocation is lazily-zeroed pages and costs nothing up front.
+  That mis-sizing is what made the web app slower than the same call made
+  directly, since the server sized its table from `api.DEALS`.
 
 ### It caches, and that is why `_search` is flat
 
@@ -1200,8 +1217,9 @@ Four things about it are deliberate:
   bug, found by `tests/test_server.py` and not by hand-testing with curl.
 
 `api.Engine` is what a long-lived process should hold: one transposition table
-for the life of the process instead of 134 MB allocated per call, and since
-the table is never cleared the queries warm each other. **The first query of a
+for the life of the process instead of one allocated per call, and since the
+table is never cleared the queries warm each other. It takes no deal count --
+see the sizing note above, which is where `Engine(deals=...)` went. **The first query of a
 process costs two to three times the ones after it** -- 10.4 s against 4.7 s
 for three actions over 1,000 deals -- which is why `api` carries two rates,
 `SECONDS_PER_DEAL` and `SECONDS_PER_DEAL_FIRST`, and `Engine.status` reports
