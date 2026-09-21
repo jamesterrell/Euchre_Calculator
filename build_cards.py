@@ -96,8 +96,8 @@ def cut_corners(card):
     Solitaire draws the corners as table, not as card, so they have to be
     transparent or every card sits in a little white notch. The fill starts
     at each corner and spreads over exactly-white pixels only; the outline is
-    a closed loop in the suit's colour -- red for the red suits, which is why
-    this cannot just clear a fixed corner block -- so nothing leaks inside.
+    a closed loop in the card's own colour, which is why this cannot just
+    clear a fixed corner block -- so nothing leaks inside.
     """
     card = card.convert("RGBA")
     px = card.load()
@@ -116,6 +116,36 @@ def cut_corners(card):
     return card
 
 
+def blacken_outline(card):
+    """Redraw the card's outline in black, whatever colour it was cut in.
+
+    XP draws that closed loop in the suit's colour on the pip cards but in
+    black on the faces, so a hand of real cards shows red borders on 9H TH AH
+    9D TD AD and black ones on everything else. The page wants one card shape,
+    so the loop is recoloured here rather than covered with a CSS border, which
+    would sit outside the 71x96 box and make the red cards a pixel wider.
+
+    The loop is exactly the opaque pixels that touch the transparent corners or
+    the edge of the bitmap -- `cut_corners` has already run, so there is no
+    other transparency -- and the pips are well inside it, so nothing but the
+    border is touched.
+    """
+    px = card.load()
+    w, h = card.size
+    edge = []
+    for x in range(w):
+        for y in range(h):
+            if px[x, y][3] == 0:
+                continue
+            for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if not (0 <= nx < w and 0 <= ny < h) or px[nx, ny][3] == 0:
+                    edge.append((x, y))
+                    break
+    for x, y in edge:
+        px[x, y] = (0, 0, 0, px[x, y][3])
+    return card
+
+
 def build(dll, out):
     from PIL import Image
 
@@ -128,7 +158,8 @@ def build(dll, out):
             if card.size != (CARD_W, CARD_H):
                 raise ValueError("resource %d is %dx%d, not %dx%d"
                                  % ((ident,) + card.size + (CARD_W, CARD_H)))
-            sheet.paste(cut_corners(card), (col * CARD_W, row * CARD_H))
+            card = blacken_outline(cut_corners(card))
+            sheet.paste(card, (col * CARD_W, row * CARD_H))
     sheet.save(out)
     return sheet.size
 

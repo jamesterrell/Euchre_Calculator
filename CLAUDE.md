@@ -1222,8 +1222,12 @@ Three things about it are worth knowing.
   `BITMAPFILEHEADER` at all. `build_cards.py` handles both.
 - **The corners are cut to transparent.** Solitaire draws a card's rounded
   corners as table, so they are flood-filled from each corner over white
-  pixels only. The outline is a closed loop in the suit's colour -- red for
-  the red suits -- which is why a fixed corner block would not do.
+  pixels only. The outline is a closed loop in the card's own colour, which is
+  why a fixed corner block would not do. XP draws that loop red on the red
+  *pip* cards and black on the faces, so `blacken_outline` recolours it to
+  black afterwards -- otherwise a hand shows red borders on 9H TH AH 9D TD AD
+  and black ones on the other eighteen. Recolouring the sheet rather than
+  adding a CSS border keeps every card exactly 71x96.
 
     GET  /                  the page
     GET  /api/health        {"ready", "busy", "workers", ...}
