@@ -477,7 +477,10 @@ where a pass really does end the deal. It is inconsistent in an obvious way,
 since inside the sample the other seats can see the hand this player is hiding,
 and it is still the best available answer to "what happens if I decline".
 `pass_model="zero"` prices a pass at 0 instead: much faster, and a markedly
-more aggressive bidder.
+more selective bidder -- it orders up slightly more often in round one and is
+euchred half as often (11.7% against 36.7%), because a seat that is not
+frightened of declining does not make desperate calls. See the profile table
+below, and `players.py`, which says the same.
 
 Card play is cheap by comparison -- a mid-hand position solve is far smaller
 than a whole hand, and a seat with one legal card skips the search entirely
