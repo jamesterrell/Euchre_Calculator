@@ -1025,27 +1025,37 @@ Two design choices were measured rather than assumed, and one of them
   when the table is under pressure, since eight ways is also an eighth as many
   addresses. See `notes/equivalence.md`; it was rechecked only because a
   different bug forced a recheck.
-- **Size matters less than it did at 10,000 deals, and much more below that.**
-  Same run: 2^24 slots (134 MB) 23.1 s, 2^25 21.6 s, 2^26 (537 MB) 20.3 s,
-  2^27 (1.1 GB) 19.4 s. Before the value bounds it was 91 s at 2^24. That 14%
-  across 2^24 to 2^26 is what a long sweep sees; a short one sees far more:
+- **Bigger is always better, so there is no size to choose.** On the run this
+  was first measured on -- one action, `--assume order`, 10,000 deals at ten
+  threads -- 2^24 slots (134 MB) took 23.1 s, 2^25 21.6 s, 2^26 (537 MB)
+  20.3 s and 2^27 (1.1 GB) 19.4 s. Before the value bounds it was 91 s at
+  2^24. That 14% across 2^24 to 2^26 read like "size barely matters now", and
+  a second measurement on `api.evaluate` -- three actions, warm table, ten
+  threads, ms per deal -- says otherwise:
 
-  | slots | 10,000 deals | 1,000 | 250 | 100 |
-  | ----- | ------------ | ----- | --- | --- |
-  | 2^23  |              | 11.68 s | 1.93 s | 0.56 s |
-  | 2^24  | 23.1 s       |  8.55 s | 1.20 s | 0.43 s |
-  | 2^25  | 21.6 s       |  5.74 s | 0.92 s | 0.39 s |
-  | 2^26  | 20.3 s       |  4.21 s | 0.85 s | 0.37 s |
+  | deals  |  2^24 |  2^26 | ratio |
+  | ------ | ----- | ----- | ----- |
+  |    250 |  4.81 |  3.59 | 1.34x |
+  |  1,000 |  8.28 |  3.75 | 2.21x |
+  |  4,000 | 11.07 |  6.29 | 1.76x |
+  | 10,000 | 10.00 |  7.50 | 1.33x |
 
-  Bigger is better at every sweep size and the gradient *steepens* as the
-  sweep shortens -- a short run searches the same positions and has fewer
-  deals to amortise a thrashing table over. So **the sweep size is the wrong
-  axis**, and `hand_ev.default_tt_bits()` does not use it: it takes 2^26
-  unless an eighth of the machine's memory is less than that. It used to scale
-  with `deals`, which put a 1,000-deal query on 2^24 and cost it 2x for no
-  saving -- the allocation is lazily-zeroed pages and costs nothing up front.
-  That mis-sizing is what made the web app slower than the same call made
-  directly, since the server sized its table from `api.DEALS`.
+  Between 1.3x and 2.2x, and **non-monotone in the deal count** -- it peaks
+  around 1,000 deals and falls off either side, which is not explained here.
+  Do not read a trend off that column; what it establishes is only that 2^26
+  wins everywhere measured. Since the allocation is lazily-zeroed pages and
+  costs nothing up front (0.00 s for 2^26), there is nothing to trade against
+  it, so `hand_ev.default_tt_bits()` takes no argument: 2^26 unless an eighth
+  of physical memory is less than that.
+
+  It used to scale with `deals`, which put a 1,000-deal query on 2^24 and cost
+  it 2.2x for no saving. That is what made the web app slower than the same
+  call made directly, since the server sized its table from `api.DEALS`.
+
+  **Note the two tables above are different workloads** -- one action against
+  three -- and are not comparable cell by cell. Reading a trend across them
+  was a real mistake made here, and the "gradient steepens as the sweep
+  shortens" claim it produced was wrong twice over.
 
 ### It caches, and that is why `_search` is flat
 

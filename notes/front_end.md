@@ -247,11 +247,14 @@ line.
    ten threads, **8.5 s at 2^24 against 4.2 s at 2^26**. Not HTTP overhead,
    not the lock, not the progress polling: those three together are ~0.4 s.
 
-   The sizing was wrong generally, not just for the server. Bigger is faster
-   at every sweep size measured and the gradient steepens as the sweep
-   shortens, so `deals` is the wrong axis; `hand_ev.default_tt_bits()` now
-   takes 2^26 unless an eighth of physical memory is less, and `Engine` takes
-   no deal count at all. CLAUDE.md has the full table.
+   The sizing was wrong generally, not just for the server. 2^26 beats 2^24
+   at every sweep size measured -- between 1.3x and 2.2x -- and the allocation
+   costs nothing up front, so there is no size to choose:
+   `hand_ev.default_tt_bits()` now takes 2^26 unless an eighth of physical
+   memory is less, and `Engine` takes no deal count at all. CLAUDE.md has the
+   table, including a warning against reading a trend off it: the benefit is
+   not monotone in the deal count, and two successive attempts to explain its
+   shape here were both wrong.
 
 3. ~~**The server.**~~ **Done** -- `server.py`, standard library only, and
    `static/index.html` as one file with no build step. It warms in a

@@ -461,27 +461,30 @@ ENGINES = (FAST, PYTHON)
 
 # How big a transposition table to give the compiled engine. It is shared by
 # every thread and never cleared, and it is the single biggest thing between
-# this script and its old runtime. Measured on `TH AS AD KD JD` with `9H` up
-# at ten threads, 8 bytes a slot:
+# this script and its old runtime.
 #
-#              10,000 deals    1,000    250     100
-#     2^23                     11.68s   1.93s   0.56s
-#     2^24    134 MB  23.1 s    8.55s   1.20s   0.43s
-#     2^25    268 MB  21.6 s    5.74s   0.92s   0.39s
-#     2^26    537 MB  20.3 s    4.21s   0.85s   0.37s
-#     2^27    1.1 GB  19.4 s
+# There is no size to choose, because bigger is better everywhere and costs
+# nothing. 2^27 buys 4% over 2^26 and a whole gigabyte, so 2^26 is the ceiling;
+# below it, measured on `TH AS AD KD JD` with `9H` up through `api.evaluate`
+# -- three actions, ten threads, warm table, ms per deal:
 #
-# Two things to read off that. **2^26 is the cap** -- the gigabyte past it
-# buys 4%. And **the sweep size is the wrong axis**: bigger is better at every
-# one of them, and the smaller the sweep the *steeper* it is, because a short
-# run still searches the same positions and just has fewer deals to amortise a
-# thrashing table over. This used to scale the table by `deals`, which left a
-# 1,000-deal query on 2^24 and cost it 2x for no saving -- the allocation is
-# lazily-zeroed pages and costs nothing measurable up front.
+#      deals     2^24     2^26    ratio
+#        250     4.81     3.59    1.34x
+#      1,000     8.28     3.75    2.21x
+#      4,000    11.07     6.29    1.76x
+#     10,000    10.00     7.50    1.33x
 #
-# So the only question is what the machine can spare: no more than an eighth
-# of physical memory, which is still a lot to ask quietly. `describe` prints
-# what it took and `--tt-bits` overrides it in either direction.
+# 2^26 wins at every one of them. The ratio is not monotone in the deal count
+# and no trend should be read off it -- an earlier version of this comment did
+# exactly that and was wrong. The allocation is lazily-zeroed pages and costs
+# nothing measurable up front (0.00 s for 2^26), so there is nothing on the
+# other side of the trade.
+#
+# This used to scale with `deals`, which left a 1,000-deal query on 2^24 and
+# cost it 2.2x for no saving. So the only question left is what the machine
+# can spare: no more than an eighth of physical memory, which is still a lot
+# to ask quietly. `describe` prints what it took and `--tt-bits` overrides it
+# in either direction.
 TT_MIN_BITS = 22
 TT_MAX_BITS = 26
 TT_MEMORY_SHARE = 8
@@ -535,7 +538,7 @@ def default_tt_bits() -> int:
     """
     How big a transposition table to allocate: as much as the machine spares.
 
-    Deliberately not a function of the sweep size. Bigger is faster at every
+    Deliberately not a function of the sweep size. 2^26 is faster at every
     sweep size measured and the allocation costs nothing up front, so there is
     nothing to trade off -- see the table above the constants. Falls back to
     the floor rather than guessing when the memory size cannot be read: a
