@@ -20,6 +20,49 @@ suit. Everything else it works out by playing hands to the end and counting.
 card by card and every option priced. Start there if you want the argument
 rather than the API.
 
+## Quickstart
+
+```bash
+git clone https://github.com/jamesterrell/Euchre_Calculator.git
+cd Euchre_Calculator
+pip install numpy numba
+python server.py --workers 10        # then open http://127.0.0.1:8000
+```
+
+That is the whole thing as a web page. Give it five cards and an up-card and
+it prices your three options -- order it up, go alone, pass -- against a table
+that cannot see your hand. The first run compiles for about eighty seconds and
+the page says so rather than hanging; every run after that starts in a second
+or two.
+
+Without the browser. Each pays a one-off compile the first time it runs in a
+process -- fifteen to twenty seconds of the times below:
+
+```bash
+# what one pinned hand is worth, over 1,000 sampled layouts -- about 45s
+python hand_ev.py "JS AS 9H 9D TC" --up 9S --seat 0 --dealer 3
+
+# one deal, every seat's options priced and the choice explained -- about a minute
+python pimc_example.py
+
+# the suite
+python -m unittest discover
+```
+
+Three things to know before you read a number it gives you:
+
+- **The answer is points per deal, from your side of the table.** Above zero
+  is a call worth making, and the three options are directly comparable
+  because they are on one scale.
+- **The `+/-` is real.** These numbers are measured, not calculated, so two
+  options whose ranges overlap have *not* been told apart. Ask for more deals.
+- **It does not know the score**, your table, or your house rules. It knows
+  the cards, and nothing else.
+
+*Optional:* the page draws Windows XP Solitaire's own cards if you supply a
+copy of `cards.dll` and run `python build_cards.py cards.dll`. Without one it
+draws its own and nothing else changes.
+
 ## The two modes
 
 ### God Mode
@@ -235,16 +278,18 @@ auction actually reaches you on. **Solve a whole deal** takes all four hands
 and answers exactly: the auction God Mode runs, and every card of the optimal
 line.
 
-Standard library only, no build step, and it binds to localhost. The first run
+Standard library only, no bundler, and it binds to localhost. The first run
 after a fresh checkout compiles for about eighty seconds; the page says so
-rather than hanging.
+rather than hanging. `build_cards.py` is the one optional build step: it cuts
+the 24 faces a Euchre deck uses out of XP's `cards.dll` into a sprite sheet,
+and the page falls back to drawing its own cards without it.
 
 ## Installation
 
+The Quickstart above is the short version. For the notebook as well:
+
 ```bash
-git clone https://github.com/jamesterrell/Euchre_Calculator.git
-cd Euchre_Calculator
-pip install numpy numba jupyter
+pip install jupyter
 jupyter notebook interface.ipynb
 ```
 
