@@ -73,8 +73,16 @@
   .slot .pc { cursor: pointer; border-style: solid; }
   .slots { display: flex; gap: 6px; flex-wrap: wrap; }
   .handrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-             margin-bottom: 10px; }
-  .handrow .who { width: 58px; font-size: .8rem; color: var(--dim); }
+             margin-bottom: 8px; }
+  .handrow .who { width: 52px; font-size: .8rem; color: var(--dim); }
+  /* The deck is six cards wide and the slots are five, so the two sit beside
+     each other inside 900px with room to spare -- stacked, they left half the
+     window empty. They wrap back to a column on a narrow screen. */
+  .pick { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  .pick > .side { flex: 0 1 auto; min-width: 0; }
+  .pick .cap { font-size: .72rem; text-transform: uppercase; color: var(--dim);
+               letter-spacing: .07em; margin: 0 0 5px; }
+  .pick .cap:not(:first-child) { margin-top: 14px; }
 
   /* ---- checkboxes ---- */
   .checks { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -143,20 +151,24 @@
   <section id="panel-eval">
     <fieldset>
       <legend>Your hand</legend>
-      <div class="handrow">
-        <span class="who">Hand</span>
-        <div class="slots" id="hand-slots"></div>
-        <span class="who" style="width:auto">Up-card</span>
-        <div class="slots" id="up-slots"></div>
-        <button class="mini" id="eval-clear" type="button">Clear</button>
-        <button class="mini" id="eval-random" type="button">Random</button>
+      <div class="pick">
+        <div class="side">
+          <p class="cap">The deck</p>
+          <div class="deck" id="deck"></div>
+        </div>
+        <div class="side">
+          <p class="cap">Your five</p>
+          <div class="slots" id="hand-slots"></div>
+          <p class="cap">Up-card</p>
+          <div class="slots" id="up-slots"></div>
+          <div class="handrow" style="margin-top:14px">
+            <button class="mini" id="eval-clear" type="button">Clear</button>
+            <button class="mini" id="eval-random" type="button">Random</button>
+          </div>
+          <div class="note" style="margin-top:0">Drag a card, or just click it.
+            Click a placed card to take it back.</div>
+        </div>
       </div>
-      <div class="note">Drag a card, or just click it. Click a placed card to take it back.</div>
-    </fieldset>
-
-    <fieldset>
-      <legend>The deck</legend>
-      <div class="deck" id="deck"></div>
     </fieldset>
 
     <fieldset>
@@ -216,18 +228,23 @@
   <section id="panel-solve" hidden>
     <fieldset>
       <legend>All four hands</legend>
-      <div id="solve-hands"></div>
-      <div class="handrow">
-        <span class="who">Up-card</span>
-        <div class="slots" id="s-up-slots"></div>
-        <button class="mini" id="solve-clear" type="button">Clear</button>
-        <button class="mini" id="solve-random" type="button">Deal at random</button>
+      <div class="pick">
+        <div class="side">
+          <p class="cap">The deck</p>
+          <div class="deck" id="s-deck"></div>
+        </div>
+        <div class="side">
+          <div id="solve-hands"></div>
+          <div class="handrow">
+            <span class="who">Up-card</span>
+            <div class="slots" id="s-up-slots"></div>
+          </div>
+          <div class="handrow" style="margin-top:12px">
+            <button class="mini" id="solve-clear" type="button">Clear</button>
+            <button class="mini" id="solve-random" type="button">Deal at random</button>
+          </div>
+        </div>
       </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>The deck</legend>
-      <div class="deck" id="s-deck"></div>
     </fieldset>
 
     <fieldset>
