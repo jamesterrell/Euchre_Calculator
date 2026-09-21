@@ -484,6 +484,17 @@ TT_MEMORY_SHARE = 8
 # Pieces of work per thread, for load balance. See `run_fast`.
 CHUNKS_PER_THREAD = 4
 
+# Progress reporting splits the sweep into blocks, and every block ends at a
+# barrier. Two numbers keep that from costing more than it reports: how many
+# updates to aim for, and how much work each chunk must have inside a block
+# before a barrier is worth paying for. Without the second one a small sweep
+# collapses -- 1,000 deals over 40 chunks in 20 blocks is barely one deal per
+# chunk per block, and the threads spend their time waiting for each other.
+# Measured on 1,000 deals at ten threads: 13.5s that way against 5.6s with
+# blocks this size, for a run that takes 5.3s with no progress at all.
+PROGRESS_BLOCKS = 20
+DEALS_PER_CHUNK_PER_BLOCK = 8
+
 
 def system_memory():
     """Physical memory in bytes, or None where we cannot find out."""
@@ -667,11 +678,13 @@ def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
     god = np.zeros((deals if both else 1, fastsim.RECORD), dtype=np.int64)
     counters = np.zeros((chunks, fastsim.COUNTERS), dtype=np.int64)
 
-    # Run in blocks so the progress line has something to say -- the table
+    # Run in blocks so a progress line has something to say -- the table
     # carries over between them, which is the point of hoisting it out here.
     # Each block ends in a barrier, though, so a quiet run does not pay for
-    # one it would never read.
-    block = deals if progress is None else max(chunks, -(-deals // 20))
+    # one it would never read, and a reported one gets blocks big enough to
+    # keep every thread busy inside them.
+    block = deals if progress is None else max(
+        chunks * DEALS_PER_CHUNK_PER_BLOCK, -(-deals // PROGRESS_BLOCKS))
     for lo in range(0, deals, block):
         hi = min(lo + block, deals)
         fastsim.run_deals(

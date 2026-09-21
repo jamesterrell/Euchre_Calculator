@@ -104,12 +104,14 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/health":
             engine = self.server.engine
-            return self._json(200, {
-                "ready": engine.ready, "busy": engine.busy,
-                "workers": engine.workers,
-                "default_deals": self.server.deals,
-                "seconds_per_deal": api.SECONDS_PER_DEAL,
-            })
+            payload = {"ready": engine.ready, "busy": engine.busy,
+                       "workers": engine.workers,
+                       "default_deals": self.server.deals,
+                       "seconds_per_deal": api.SECONDS_PER_DEAL,
+                       "seconds_per_deal_first":
+                           api.SECONDS_PER_DEAL_FIRST}
+            payload.update(engine.status)
+            return self._json(200, payload)
         if path in ("/", "/index.html"):
             return self._static("index.html")
         if path.startswith("/static/"):

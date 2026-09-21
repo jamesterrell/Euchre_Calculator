@@ -55,6 +55,7 @@ one without knowing anything about `rotation.Card`.
 import math
 import random
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence, Tuple
 
@@ -76,12 +77,25 @@ _ASSUME = {ORDER: hand_ev.ASSUME_ORDER,
 
 DEALS = 1000
 
-# Roughly what one deal costs, across all three actions, on ten threads. Only
-# ever used to quote a wait time before a query runs -- the cost is linear in
-# `deals`, which is what makes quoting one possible at all. Measured on a
-# 12-thread machine; a slower one will overrun the estimate and the page says
-# "about".
-SECONDS_PER_DEAL = 0.0057
+# Roughly what one deal costs across all three actions, on ten threads. Only
+# ever used to quote a wait before a query runs; the cost is near enough linear
+# in `deals` for that to be possible at all.
+#
+# Two numbers, because **the first query is two to three times slower than the
+# ones after it**. The transposition table starts empty and is never cleared,
+# so a process pays to fill it once and every query after that inherits the
+# work. Measured on a 12-thread machine, three actions, warm against a fresh
+# table:
+#
+#      deals     first     after
+#        250      2.9s      0.9s
+#      1,000     10.4s      4.7s
+#      4,000     38.2s     27.9s
+#
+# A slower machine will overrun both, which is why the page says "about" and
+# then shows real progress rather than leaning on the estimate.
+SECONDS_PER_DEAL = 0.006
+SECONDS_PER_DEAL_FIRST = 0.011
 
 
 # ------------------------------------------------------------------- input
@@ -268,7 +282,8 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
              allow_loners: bool = True, stick: bool = False,
              epsilon: Optional[float] = hand_ev.EPSILON,
              workers: int = 1, seed: int = 0,
-             tt_bits: Optional[int] = None, table=None) -> Evaluation:
+             tt_bits: Optional[int] = None, table=None,
+             on_progress=None) -> Evaluation:
     """
     What this hand is worth, per action, to a table that cannot see it.
 
@@ -291,6 +306,11 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
         table: a transposition table from `hand_ev.new_table`, to reuse across
             queries instead of allocating 134 MB per call. `Engine` does this
             for you.
+        on_progress: called as `on_progress(fraction, action)` as the sweep
+            runs, with `fraction` covering all the actions rather than the one
+            in hand. It costs about 5%, because reporting means the threads
+            meet at a barrier every block instead of only at the end, so it is
+            off unless something is listening.
 
     Returns an `Evaluation`. Each action's mean is taken over the deals the
     auction reached this seat on, which is the population a player faces.
@@ -314,7 +334,11 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
             raise ValueError("no such action: %r" % (name,))
 
     out = []
-    for name in actions:
+    for index, name in enumerate(actions):
+        note = None
+        if on_progress is not None:
+            def note(done, total, index=index, name=name):
+                on_progress((index + done / total) / len(actions), name)
         setup = hand_ev.Setup(
             hand=hand, up_card=up_card, seat=seat, dealer=dealer,
             player_eval_sims=hand_ev._budget(play_sims, None,
@@ -327,7 +351,8 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
             seed=seed, epsilon=epsilon, assume=_ASSUME[name],
             let_auction_play=True)
         records, _, _ = hand_ev.run_fast(setup, deals, workers=workers,
-                                         tt_bits=tt_bits, table=table)
+                                         tt_bits=tt_bits, table=table,
+                                         progress=note)
         out.append(_summarise(name, records, seat))
 
     return Evaluation(hand=hand, up_card=up_card, seat=seat, dealer=dealer,
@@ -452,6 +477,10 @@ class Engine:
         self._table = hand_ev.new_table(tt_bits, deals)
         self._lock = threading.Lock()
         self._ready = False
+        self._stage = ""
+        self._progress = 0.0
+        self._started = 0.0
+        self._queries = 0
 
     @property
     def ready(self) -> bool:
@@ -460,6 +489,27 @@ class Engine:
     @property
     def busy(self) -> bool:
         return self._lock.locked()
+
+    @property
+    def status(self) -> dict:
+        """
+        What it is doing and how far in, for a page that would otherwise be
+        staring at a blocking POST.
+
+        Safe to read without the lock, and meaningful without a job id,
+        because queries are serialised -- there is only ever one to report on.
+        """
+        return {"stage": self._stage,
+                "progress": round(self._progress, 4),
+                "elapsed": round(time.time() - self._started, 2)
+                if self._started else 0.0,
+                # Zero means the table is still empty, and the next query will
+                # pay to fill it. The page quotes a longer wait for that one.
+                "queries": self._queries}
+
+    def _note(self, fraction: float, action: str) -> None:
+        self._progress = fraction
+        self._stage = action
 
     def warm(self) -> None:
         """Force the compiled code to load, on a query nobody is waiting for."""
@@ -477,12 +527,22 @@ class Engine:
     def evaluate(self, hand, up_card, seat: int = 0, dealer: int = 3,
                  deals: int = DEALS, **kw) -> Evaluation:
         kw.setdefault("workers", self.workers)
+        kw.setdefault("on_progress", self._note)
         with self._lock:
             self._ready = True
-            return evaluate(hand, up_card, seat=seat, dealer=dealer,
-                            deals=deals, table=self._table, **kw)
+            self._started, self._progress, self._stage = time.time(), 0.0, ""
+            try:
+                return evaluate(hand, up_card, seat=seat, dealer=dealer,
+                                deals=deals, table=self._table, **kw)
+            finally:
+                self._started, self._progress, self._stage = 0.0, 0.0, ""
+                self._queries += 1
 
     def solve(self, hands, up_card, dealer: int = 3, **kw) -> Solution:
         with self._lock:
             self._ready = True
-            return solve(hands, up_card, dealer=dealer, **kw)
+            self._started, self._progress, self._stage = time.time(), 0.0, "solving"
+            try:
+                return solve(hands, up_card, dealer=dealer, **kw)
+            finally:
+                self._started, self._progress, self._stage = 0.0, 0.0, ""

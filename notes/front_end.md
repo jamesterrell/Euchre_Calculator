@@ -22,18 +22,26 @@ The framing was settled in conversation and is not up for rediscovery:
 Three actions, walked auction, mean over the deals that reached the seat.
 `TH AS AD KD JD`, `9H` up, seat 2, dealer 0:
 
-| deals | wall | order | order alone | pass |
-| ----- | ---- | ----- | ----------- | ---- |
-|    100 |  1.1s | +/- 0.226 | +/- 0.455 | +/- 0.299 |
-|    250 |  2.2s | +/- 0.137 | +/- 0.274 | +/- 0.182 |
-|    500 |  3.9s | +/- 0.101 | +/- 0.192 | +/- 0.135 |
-|  1,000 |  7.5s | +/- 0.078 | +/- 0.139 | +/- 0.100 |
-|  2,500 | 16.7s | +/- 0.049 | +/- 0.088 | +/- 0.062 |
-|  5,000 | 30.3s | +/- 0.034 | +/- 0.062 | +/- 0.044 |
-| 10,000 | 57.2s | +/- 0.024 | +/- 0.044 | +/- 0.031 |
+| deals | first query | after | order | order alone | pass |
+| ----- | ----------- | ----- | ----- | ----------- | ---- |
+|    250 |  2.9s |  0.9s | +/- 0.137 | +/- 0.274 | +/- 0.182 |
+|    500 |  5.5s |  2.0s | +/- 0.101 | +/- 0.192 | +/- 0.135 |
+|  1,000 | 10.4s |  4.7s | +/- 0.078 | +/- 0.139 | +/- 0.100 |
+|  2,000 | 19.6s | 11.8s | +/- 0.055 | +/- 0.098 | +/- 0.070 |
+|  4,000 | 38.2s | 27.9s | +/- 0.039 | +/- 0.069 | +/- 0.050 |
+| 10,000 |     - | 57.2s | +/- 0.024 | +/- 0.044 | +/- 0.031 |
 
-Linear, about **5.7 ms a deal** for all three actions together. So the UI can
-promise a wait time honestly, and the arithmetic is `deals * 0.0057` seconds.
+Near enough linear to quote a wait from, at about **6 ms a deal** for all three
+actions -- but **the first query of a process costs two to three times that**.
+The transposition table starts empty and is never cleared, so one query pays to
+fill it and every query after inherits the work. `api.SECONDS_PER_DEAL` and
+`SECONDS_PER_DEAL_FIRST` are those two rates, `Engine.status` reports how many
+queries have run, and the page quotes whichever applies.
+
+That warming effect is also what made the first round of these measurements
+incoherent -- runs got faster through a session and "no progress" appeared to
+be slower than "with progress". Measure a fresh table and a warm one
+separately, or the numbers move under you.
 
 **Going alone needs about four times the deals for the same precision.** Its
 outcomes run -2 to +4 where a four-handed call runs -2 to +2, so its interval
@@ -238,10 +246,21 @@ line.
    was a real bug: HTTP/1.1 reuses connections, and a request whose body was
    never read leaves bytes in the socket that the next request gets parsed out
    of. `tests/test_server.py` found it; curl by hand had not.
-4. ~~**The UI.**~~ **Done** -- two tabs over the two functions. The deals
-   slider quotes its own wait from `api.SECONDS_PER_DEAL`, the intervals are
-   drawn rather than only printed, and when they overlap the page says so
-   instead of letting "highest" read as advice.
+4. ~~**The UI.**~~ **Done** -- three tabs: evaluate, solve, and an About page
+   written for a Euchre player rather than a programmer (615 words, no
+   jargon). Cards are picked by dragging or clicking from a deck laid out a
+   suit to a row, not typed. Checkboxes choose which actions to price, all
+   three on by default. The deals slider quotes its own wait and says when the
+   first query will be slower. Progress is **real**, not a guess: the page
+   polls `/api/health` for the engine's own fraction and the action it is
+   pricing, and rotates a line of nonsense over the top of it.
+
+   Reporting progress costs something, and getting it wrong costs a lot. The
+   sweep is split into blocks and every block ends at a barrier, so a block has
+   to be big enough to keep every thread busy: 1,000 deals over 40 chunks in 20
+   blocks is barely one deal per chunk per block, and it ran at 13.5s against
+   5.6s. `DEALS_PER_CHUNK_PER_BLOCK` is the floor that fixes it; the remaining
+   cost is under 10%.
 
 Nothing in (2), (3) or (4) changed `api.py`'s shape, which was the point of
 doing it first.

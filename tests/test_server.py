@@ -38,6 +38,10 @@ class StubEngine:
         self.workers = 3
         self.calls = []
         self.raise_with = None
+        # Whatever `api.Engine` exposes, this has to expose too -- the health
+        # endpoint reads it, and a stub that lags the real interface fails as
+        # a dropped connection rather than as a missing attribute.
+        self.status = {"stage": "", "progress": 0.0, "elapsed": 0.0}
 
     # Real cards, because the answers still go through `as_dict()` on the way
     # out and a stub that cannot be serialised tests the wrong thing.
@@ -115,6 +119,25 @@ class TestRouting(ServerCase):
         self.assertEqual(got["workers"], 3)
         self.assertEqual(got["default_deals"], 7)
         self.assertEqual(got["seconds_per_deal"], api.SECONDS_PER_DEAL)
+        # The page polls this during a query and draws a bar from it.
+        for key in ("busy", "stage", "progress", "elapsed"):
+            self.assertIn(key, got)
+
+    def test_health_carries_whatever_the_engine_reports(self):
+        """
+        The real `Engine.status` grew a field once already. Reading it off the
+        engine rather than naming the fields here is what keeps the two from
+        drifting apart -- silently, as a dropped connection.
+        """
+        self.engine.status = {"stage": "order alone", "progress": 0.42,
+                              "elapsed": 3.5}
+        try:
+            got = json.loads(self.get("/api/health")[1])
+        finally:
+            self.engine.status = {"stage": "", "progress": 0.0, "elapsed": 0.0}
+        self.assertEqual(got["stage"], "order alone")
+        self.assertEqual(got["progress"], 0.42)
+        self.assertEqual(got["elapsed"], 3.5)
 
     def test_the_page_is_served(self):
         status, body = self.get("/")

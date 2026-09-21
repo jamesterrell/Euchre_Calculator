@@ -7,70 +7,123 @@
   :root {
     color-scheme: light dark;
     --bg: #fbfaf7; --fg: #1b1a17; --dim: #6b6862; --line: #ddd8cf;
-    --card: #fff; --accent: #2f6f4e; --bad: #9c3b2e; --warn: #8a6d1f;
-    --pad: 16px;
+    --card: #fff; --felt: #edf1ec; --accent: #2f6f4e; --bad: #9c3b2e;
+    --warn: #8a6d1f; --red: #b03028; --black: #23221f;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #17181a; --fg: #e9e6e0; --dim: #9a968e; --line: #33353a;
-      --card: #1f2124; --accent: #6bbd8e; --bad: #e08373; --warn: #d8b44a;
+      --card: #24262a; --felt: #1c2220; --accent: #6bbd8e; --bad: #e08373;
+      --warn: #d8b44a; --red: #e8837a; --black: #e9e6e0;
     }
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--fg);
-    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  main { max-width: 860px; margin: 0 auto; padding: var(--pad); }
-  h1 { font-size: 1.35rem; margin: 1.2rem 0 .2rem; letter-spacing: -.01em; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.35rem; margin: 1.1rem 0 .2rem; letter-spacing: -.01em; }
   h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
-       color: var(--dim); margin: 1.6rem 0 .6rem; font-weight: 600; }
-  p.lede { color: var(--dim); margin: 0 0 1.4rem; }
+       color: var(--dim); margin: 1.5rem 0 .55rem; font-weight: 600; }
+  h3 { font-size: 1rem; margin: 1.4rem 0 .3rem; }
+  p.lede { color: var(--dim); margin: 0 0 1.2rem; }
   fieldset { border: 1px solid var(--line); border-radius: 10px;
              background: var(--card); padding: 14px; margin: 0 0 14px; }
   legend { padding: 0 6px; color: var(--dim); font-size: .78rem;
            text-transform: uppercase; letter-spacing: .07em; }
-  label { display: block; font-size: .8rem; color: var(--dim); margin-bottom: 4px; }
-  input, select, button, textarea {
+  label { font-size: .82rem; color: var(--dim); }
+  select, button, input[type=range] {
     font: inherit; color: inherit; background: var(--bg);
-    border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px;
-  }
-  input[type=text] { width: 100%; font-family: ui-monospace, monospace; }
-  .row { display: flex; flex-wrap: wrap; gap: 12px; }
-  .row > div { flex: 1 1 130px; min-width: 0; }
-  button.go {
-    background: var(--accent); color: #fff; border-color: transparent;
-    font-weight: 600; padding: 9px 18px; cursor: pointer;
-  }
-  button.go:disabled { opacity: .5; cursor: default; }
+    border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+  .row > div { min-width: 0; }
+  button.go { background: var(--accent); color: #fff; border-color: transparent;
+    font-weight: 600; padding: 9px 20px; cursor: pointer; }
+  button.go:disabled { opacity: .45; cursor: default; }
+  button.mini { padding: 4px 10px; font-size: .8rem; cursor: pointer; }
   .note { font-size: .8rem; color: var(--dim); margin-top: 8px; }
-  .err { color: var(--bad); font-size: .85rem; margin-top: 10px; }
+  .err { color: var(--bad); font-size: .87rem; margin-top: 10px; }
+  .status { font-size: .8rem; color: var(--dim); }
+  .status.warn { color: var(--warn); }
 
+  /* ---- cards ---- */
+  .deck { display: flex; flex-direction: column; gap: 5px; }
+  .suitrow { display: flex; gap: 5px; flex-wrap: wrap; }
+  .pc {
+    width: 40px; height: 56px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--card); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; line-height: 1;
+    font-weight: 600; cursor: grab; user-select: none; flex: none;
+    transition: transform .08s, opacity .12s;
+  }
+  .pc:hover { transform: translateY(-2px); }
+  .pc:active { cursor: grabbing; }
+  .pc .r { font-size: 1rem; }
+  .pc .s { font-size: 1.05rem; margin-top: 1px; }
+  .pc.red { color: var(--red); } .pc.black { color: var(--black); }
+  .pc.used { opacity: .18; pointer-events: none; }
+  .pc.dragging { opacity: .4; }
+  .slot {
+    width: 40px; height: 56px; border: 1.5px dashed var(--line);
+    border-radius: 6px; background: var(--felt); flex: none;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--dim); font-size: .7rem;
+  }
+  .slot.over { border-color: var(--accent); border-style: solid;
+               background: color-mix(in srgb, var(--accent) 14%, var(--felt)); }
+  .slot .pc { cursor: pointer; border-style: solid; }
+  .slots { display: flex; gap: 6px; flex-wrap: wrap; }
+  .handrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+             margin-bottom: 10px; }
+  .handrow .who { width: 58px; font-size: .8rem; color: var(--dim); }
+
+  /* ---- checkboxes ---- */
+  .checks { display: flex; gap: 8px; flex-wrap: wrap; }
+  .checks label { display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px;
+    cursor: pointer; background: var(--bg); color: var(--fg); font-size: .9rem; }
+  .checks input { accent-color: var(--accent); }
+  .checks label:has(input:checked) { border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+  /* ---- progress ---- */
+  #work { margin-top: 14px; }
+  .track { height: 10px; background: var(--line); border-radius: 5px;
+           overflow: hidden; }
+  .track i { display: block; height: 100%; background: var(--accent);
+             width: 0; transition: width .35s ease; }
+  .track.idle i { transition: none; }
+  .zany { margin-top: 9px; font-size: .92rem; min-height: 1.5em; }
+  .zany b { font-weight: 500; }
+  .meta { font-size: .78rem; color: var(--dim); margin-top: 3px;
+          font-variant-numeric: tabular-nums; }
+
+  /* ---- results ---- */
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
-  th { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em;
+  th { font-size: .74rem; text-transform: uppercase; letter-spacing: .06em;
        color: var(--dim); font-weight: 600; }
   td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ev { font-size: 1.05rem; font-weight: 600; }
   .pm { color: var(--dim); font-weight: 400; }
   .bar { position: relative; height: 8px; background: var(--line);
-         border-radius: 4px; min-width: 90px; }
+         border-radius: 4px; min-width: 100px; }
   .bar i { position: absolute; top: 0; height: 8px; background: var(--accent);
            opacity: .45; border-radius: 4px; }
-  .bar b { position: absolute; top: -2px; width: 2px; height: 12px;
+  .bar b { position: absolute; top: -3px; width: 2px; height: 14px;
            background: var(--fg); }
   .scroll { overflow-x: auto; }
   code { font-family: ui-monospace, monospace; font-size: .92em; }
-  .tag { display: inline-block; font-size: .72rem; padding: 1px 7px;
+  .tag { display: inline-block; font-size: .72rem; padding: 1px 8px;
          border: 1px solid var(--line); border-radius: 999px; color: var(--dim); }
-  .status { font-size: .8rem; color: var(--dim); }
-  .status.warn { color: var(--warn); }
-  .caveat { border-left: 3px solid var(--line); padding: 2px 0 2px 12px;
-            color: var(--dim); font-size: .85rem; margin-top: 14px; }
-  .tabs { display: flex; gap: 6px; margin: 1.6rem 0 .8rem; }
+  .caveat { border-left: 3px solid var(--line); padding: 3px 0 3px 12px;
+            color: var(--dim); font-size: .86rem; margin-top: 14px; }
+  .tabs { display: flex; gap: 6px; margin: 1.5rem 0 .9rem; flex-wrap: wrap; }
   .tabs button { cursor: pointer; }
   .tabs button[aria-selected=true] { background: var(--card);
-                                     border-color: var(--fg); font-weight: 600; }
+    border-color: var(--fg); font-weight: 600; }
+  .about p, .about li { max-width: 62ch; }
+  .about ul { padding-left: 1.1rem; }
+  .about .big { font-size: 1.05rem; }
 </style>
 
 <main>
@@ -83,63 +136,75 @@
   <div class="tabs" role="tablist">
     <button role="tab" id="tab-eval" aria-selected="true">Evaluate a hand</button>
     <button role="tab" id="tab-solve" aria-selected="false">Solve a whole deal</button>
+    <button role="tab" id="tab-about" aria-selected="false">About</button>
   </div>
 
-  <!-- ------------------------------------------------- evaluate -->
+  <!-- =============================================== evaluate -->
   <section id="panel-eval">
-    <form id="form-eval">
-      <fieldset>
-        <legend>Your hand</legend>
-        <div class="row">
-          <div style="flex: 3 1 260px">
-            <label for="hand">Five cards</label>
-            <input type="text" id="hand" value="TH AS AD KD JD" spellcheck="false"
-                   autocapitalize="characters">
-          </div>
-          <div>
-            <label for="up">Up-card</label>
-            <input type="text" id="up" value="9H" spellcheck="false"
-                   autocapitalize="characters">
-          </div>
-        </div>
-        <div class="note">Rank then suit, e.g. <code>JS</code>, <code>TH</code>, <code>9D</code>.</div>
-      </fieldset>
+    <fieldset>
+      <legend>Your hand</legend>
+      <div class="handrow">
+        <span class="who">Hand</span>
+        <div class="slots" id="hand-slots"></div>
+        <span class="who" style="width:auto">Up-card</span>
+        <div class="slots" id="up-slots"></div>
+        <button class="mini" id="eval-clear" type="button">Clear</button>
+        <button class="mini" id="eval-random" type="button">Random</button>
+      </div>
+      <div class="note">Drag a card, or just click it. Click a placed card to take it back.</div>
+    </fieldset>
 
-      <fieldset>
-        <legend>Table</legend>
-        <div class="row">
-          <div>
-            <label for="seat">Your seat</label>
-            <select id="seat"><option>0</option><option>1</option>
-              <option selected>2</option><option>3</option></select>
-          </div>
-          <div>
-            <label for="dealer">Dealer</label>
-            <select id="dealer"><option selected>0</option><option>1</option>
-              <option>2</option><option>3</option></select>
-          </div>
-          <div style="flex: 2 1 220px">
-            <label for="deals">Deals <span id="deals-label"></span></label>
-            <input type="range" id="deals" min="100" max="10000" step="100"
-                   value="1000" style="width: 100%; padding: 0">
-          </div>
-        </div>
-        <div class="note" id="speak"></div>
-      </fieldset>
+    <fieldset>
+      <legend>The deck</legend>
+      <div class="deck" id="deck"></div>
+    </fieldset>
 
-      <button class="go" id="run-eval" type="submit">Evaluate</button>
-      <span class="status" id="eval-status"></span>
-      <div class="err" id="eval-error" hidden></div>
-    </form>
+    <fieldset>
+      <legend>Table</legend>
+      <div class="row">
+        <div>
+          <label for="seat">Your seat</label><br>
+          <select id="seat"><option>0</option><option>1</option>
+            <option selected>2</option><option>3</option></select>
+        </div>
+        <div>
+          <label for="dealer">Dealer</label><br>
+          <select id="dealer"><option selected>0</option><option>1</option>
+            <option>2</option><option>3</option></select>
+        </div>
+        <div style="flex:1 1 240px">
+          <label for="deals">Deals to play <span id="deals-label"></span></label>
+          <input type="range" id="deals" min="100" max="10000" step="100"
+                 value="1000" style="width:100%; padding:0">
+        </div>
+      </div>
+      <div class="note" id="speak"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>What to price</legend>
+      <div class="checks" id="actions">
+        <label><input type="checkbox" value="order" checked> Order it up</label>
+        <label><input type="checkbox" value="order alone" checked> Order it alone</label>
+        <label><input type="checkbox" value="pass" checked> Pass</label>
+      </div>
+    </fieldset>
+
+    <button class="go" id="run-eval" type="button">Evaluate</button>
+    <div class="err" id="eval-error" hidden></div>
+
+    <div id="work" hidden>
+      <div class="track" id="track"><i id="track-fill"></i></div>
+      <div class="zany" id="zany"></div>
+      <div class="meta" id="work-meta"></div>
+    </div>
 
     <div id="eval-out" hidden>
       <h2>What it plays for</h2>
       <div class="scroll">
         <table>
-          <thead><tr>
-            <th>Action</th><th>Points per deal</th><th></th>
-            <th>March</th><th>Made</th><th>Euchred</th>
-          </tr></thead>
+          <thead><tr><th>Action</th><th>Points per deal</th><th></th>
+            <th>March</th><th>Made</th><th>Euchred</th></tr></thead>
           <tbody id="eval-rows"></tbody>
         </table>
       </div>
@@ -147,37 +212,40 @@
     </div>
   </section>
 
-  <!-- ---------------------------------------------------- solve -->
+  <!-- ================================================== solve -->
   <section id="panel-solve" hidden>
-    <form id="form-solve">
-      <fieldset>
-        <legend>All four hands</legend>
-        <div class="row" id="solve-hands"></div>
-      </fieldset>
-      <fieldset>
-        <legend>Table</legend>
-        <div class="row">
-          <div>
-            <label for="s-up">Up-card</label>
-            <input type="text" id="s-up" value="9H" spellcheck="false">
-          </div>
-          <div>
-            <label for="s-dealer">Dealer</label>
-            <select id="s-dealer"><option>0</option><option>1</option>
-              <option>2</option><option selected>3</option></select>
-          </div>
-          <div>
-            <label for="s-seat">Show options for</label>
-            <select id="s-seat"><option value="">nobody</option>
-              <option value="0" selected>seat 0</option><option value="1">seat 1</option>
-              <option value="2">seat 2</option><option value="3">seat 3</option></select>
-          </div>
-        </div>
-      </fieldset>
-      <button class="go" id="run-solve" type="submit">Solve</button>
-      <span class="status" id="solve-status"></span>
-      <div class="err" id="solve-error" hidden></div>
-    </form>
+    <fieldset>
+      <legend>All four hands</legend>
+      <div id="solve-hands"></div>
+      <div class="handrow">
+        <span class="who">Up-card</span>
+        <div class="slots" id="s-up-slots"></div>
+        <button class="mini" id="solve-clear" type="button">Clear</button>
+        <button class="mini" id="solve-random" type="button">Deal at random</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>The deck</legend>
+      <div class="deck" id="s-deck"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Table</legend>
+      <div class="row">
+        <div><label for="s-dealer">Dealer</label><br>
+          <select id="s-dealer"><option>0</option><option>1</option>
+            <option>2</option><option selected>3</option></select></div>
+        <div><label for="s-seat">Show bid options for</label><br>
+          <select id="s-seat"><option value="">nobody</option>
+            <option value="0" selected>seat 0</option><option value="1">seat 1</option>
+            <option value="2">seat 2</option><option value="3">seat 3</option></select></div>
+      </div>
+    </fieldset>
+
+    <button class="go" id="run-solve" type="button">Solve</button>
+    <span class="status" id="solve-status"></span>
+    <div class="err" id="solve-error" hidden></div>
 
     <div id="solve-out" hidden>
       <h2>Auction</h2>
@@ -185,202 +253,508 @@
       <h2>Play</h2>
       <div class="scroll"><table>
         <thead><tr><th>Trick</th><th>Cards</th><th>Won by</th></tr></thead>
-        <tbody id="solve-tricks"></tbody>
-      </table></div>
+        <tbody id="solve-tricks"></tbody></table></div>
       <div class="caveat">
-        Exact, not sampled: every seat sees every card and plays the minimax
-        line. That is a different question from the one above, and a stronger
-        opponent than anybody real.
+        Exact, not sampled. Every seat sees every card and plays perfectly —
+        which is a different question from the one on the first tab, and a
+        harder opponent than anybody real.
       </div>
     </div>
+  </section>
+
+  <!-- ================================================== about -->
+  <section id="panel-about" hidden class="about">
+    <h3>What this tells you</h3>
+    <p class="big">
+      You are looking at a hand. Somebody has turned a card up. Should you
+      order it? Go alone? Pass and see what happens?
+    </p>
+    <p>
+      This answers that by <strong>playing the hand out thousands of times</strong>
+      and keeping score. Not with rules of thumb, and not by asking an expert —
+      it deals the other eighteen cards a few thousand different ways, plays
+      every one of those deals to the last trick, and averages what you scored.
+    </p>
+
+    <h3>What the number means</h3>
+    <p>
+      <strong>Points per deal, to your team.</strong> A hand worth
+      <code>+0.9</code> earns your side about nine tenths of a point every time
+      you take it — sometimes a march for two, often one point, occasionally a
+      euchre against you for minus two. Over a long night it averages out to
+      that.
+    </p>
+    <p>
+      Anything above zero is a call worth making. The bigger the number the
+      better, and you can compare the three actions directly: they are all on
+      the same scale, from your side of the table.
+    </p>
+
+    <h3>Why there is a ± after it</h3>
+    <p>
+      Because it is measured, not calculated. Play the same hand a thousand
+      times and you get a slightly different average than the next thousand —
+      the same way your results on a good hand vary over a night of cards. The
+      ± is how much wobble is left. <strong>If two actions' ranges overlap,
+      this run cannot tell them apart</strong>; drag the slider up and it will
+      play more deals and narrow them.
+    </p>
+    <p>
+      Going alone is always the wobbliest of the three, because a lone march
+      pays four and a failed one still costs two. It needs roughly four times
+      as many deals to be as sure.
+    </p>
+
+    <h3>Who you are playing against</h3>
+    <p>
+      Three opponents and a partner who are in exactly your position: they can
+      see their own five cards and the up-card, and nothing else. They think
+      the way this page does — imagine the hands everyone might hold, play them
+      out, pick whatever does best on average. They are good, steady players.
+      They do not signal, they do not have a read on you, and they never make
+      the play that only works because they know what you are holding.
+    </p>
+
+    <h3>What it does not know</h3>
+    <ul>
+      <li><strong>The score.</strong> It prices every hand as if the game were
+        level. At 9–6 you order things you would never order at 0–0, and this
+        has no idea.</li>
+      <li><strong>Your table.</strong> Whether your partner is having a bad
+        night, whether the player on your left always leads trump, whether
+        anyone is counting.</li>
+      <li><strong>Stick the dealer, farmer's hand, and the rest.</strong> The
+        house rules are not in here.</li>
+    </ul>
+    <p>
+      So treat it as a strong second opinion about the cards, not as an
+      instruction. It knows the cards better than anyone; it knows nothing
+      else.
+    </p>
+
+    <h3>The other tab</h3>
+    <p>
+      <em>Solve a whole deal</em> is a different thing. Give it all four hands
+      and it works out exactly what happens if everybody plays perfectly and
+      can see everything — who calls, who takes each trick, what it scores. It
+      is the answer to "what was actually in that hand", which is a good way to
+      settle an argument after the fact. It is not how anybody plays, because
+      nobody can see the other hands.
+    </p>
+
+    <h3>The slider</h3>
+    <p>
+      More deals, a tighter answer, a longer wait — and the wait is honest:
+      the page tells you roughly how long before you start. A thousand deals
+      takes a few seconds and is usually plenty. Ten thousand is for when two
+      actions are close and you want to know which is really better.
+    </p>
+    <p class="note">
+      First run after installing, the engine spends a minute or so compiling
+      itself. That happens once.
+    </p>
   </section>
 </main>
 
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-let perDeal = 0.0057;
 
-// ---------------------------------------------------------------- health
+/* ------------------------------------------------------------- the deck */
+const SUITS = [
+  {k: "S", sym: "♠", red: false}, {k: "H", sym: "♥", red: true},
+  {k: "D", sym: "♦", red: true},  {k: "C", sym: "♣", red: false}];
+const RANKS = ["9", "T", "J", "Q", "K", "A"];
+const SHOWN = {9: "9", T: "10", J: "J", Q: "Q", K: "K", A: "A"};
+const DECK = [].concat(...SUITS.map(s => RANKS.map(r => r + s.k)));
+const suitOf = (id) => SUITS.find(s => s.k === id.slice(-1));
+
+function cardEl(id, draggable) {
+  const s = suitOf(id), el = document.createElement("div");
+  el.className = "pc " + (s.red ? "red" : "black");
+  el.dataset.card = id;
+  el.draggable = !!draggable;
+  el.innerHTML = `<span class="r">${SHOWN[id[0]]}</span><span class="s">${s.sym}</span>`;
+  return el;
+}
+
+/* A board is a set of named slot groups sharing one deck. */
+function Board(deckEl, groups, onChange) {
+  const state = {};                       // group -> array of card ids or null
+  groups.forEach(g => state[g.name] = new Array(g.size).fill(null));
+  const used = () => [].concat(...groups.map(g => state[g.name])).filter(Boolean);
+
+  function firstEmpty() {
+    for (const g of groups) {
+      const i = state[g.name].indexOf(null);
+      if (i >= 0) return [g.name, i];
+    }
+    return null;
+  }
+  function place(card, group, index) {
+    if (used().includes(card)) return false;
+    if (group == null) { const spot = firstEmpty(); if (!spot) return false;
+                         [group, index] = spot; }
+    if (state[group][index]) return false;
+    state[group][index] = card; draw(); return true;
+  }
+  function lift(group, index) { state[group][index] = null; draw(); }
+  function clear() { groups.forEach(g => state[g.name].fill(null)); draw(); }
+  function setAll(assign) {
+    groups.forEach(g => state[g.name] = assign[g.name].slice());
+    draw();
+  }
+
+  function draw() {
+    const taken = new Set(used());
+    deckEl.querySelectorAll(".pc").forEach(el =>
+      el.classList.toggle("used", taken.has(el.dataset.card)));
+    groups.forEach(g => {
+      const host = typeof g.el === "function" ? g.el() : g.el;
+      host.innerHTML = "";
+      state[g.name].forEach((card, i) => {
+        const slot = document.createElement("div");
+        slot.className = "slot";
+        if (card) {
+          const el = cardEl(card, false);
+          el.title = "click to take it back";
+          el.addEventListener("click", () => lift(g.name, i));
+          slot.appendChild(el);
+        } else slot.textContent = g.hint || "";
+        slot.addEventListener("dragover", (e) => {
+          if (!card) { e.preventDefault(); slot.classList.add("over"); } });
+        slot.addEventListener("dragleave", () => slot.classList.remove("over"));
+        slot.addEventListener("drop", (e) => {
+          e.preventDefault(); slot.classList.remove("over");
+          place(e.dataTransfer.getData("text/plain"), g.name, i);
+        });
+        host.appendChild(slot);
+      });
+    });
+    if (onChange) onChange(state);
+  }
+
+  // A row per suit. One wrapping row of twenty-four breaks in the middle of
+  // a suit at most window widths, which makes a card hard to find.
+  SUITS.forEach(suit => {
+    const row = document.createElement("div");
+    row.className = "suitrow";
+    RANKS.forEach(rank => {
+      const id = rank + suit.k, el = cardEl(id, true);
+      el.addEventListener("click", () => place(id, null, null));
+      el.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.effectAllowed = "move";
+        el.classList.add("dragging");
+      });
+      el.addEventListener("dragend", () => el.classList.remove("dragging"));
+      row.appendChild(el);
+    });
+    deckEl.appendChild(row);
+  });
+
+  draw();
+  return {state, place, clear, setAll, draw,
+          get: (g) => state[g].slice(),
+          full: () => used().length === groups.reduce((n, g) => n + g.size, 0)};
+}
+
+function shuffled() {
+  const d = DECK.slice();
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [d[i], d[j]] = [d[j], d[i]];
+  }
+  return d;
+}
+
+/* --------------------------------------------------------------- status */
+const WARMING = [
+  "Waking the engine…",
+  "Teaching a computer to count trump…",
+  "Explaining that the left bower is trump, actually…",
+  "Compiling several thousand imaginary card tables…",
+  "Sharpening the bowers…",
+  "This only happens once. Honest.",
+];
+const ZANY = [
+  "Unbelievably complex calculations taking place…",
+  "Exploring parallel universes…",
+  "Dealing hands that will never be dealt…",
+  "Consulting a hundred and thirty-two imaginary opponents…",
+  "Counting trump in several thousand alternate realities…",
+  "Second-guessing the dealer…",
+  "Considering every card nobody can see…",
+  "Politely euchring a hypothetical stranger…",
+  "Playing out hands so that you don't have to…",
+  "Arguing with four imaginary partners…",
+  "Turning down a great many hypothetical nines…",
+  "Asking what your partner would do. Nobody knows.",
+  "Shuffling the multiverse…",
+  "Somewhere a simulated opponent just reneged. Re-dealing that one.",
+  "Marching, occasionally…",
+];
+
+let perDeal = 0.006, perDealFirst = 0.011, queriesDone = 0;
+let rotator = null, tick = null;
+
+function rotate(list, into) {
+  let i = Math.floor(Math.random() * list.length);
+  const show = () => { into.innerHTML = "<b>" + list[i % list.length] + "</b>";
+                       i++; };
+  show();
+  clearInterval(rotator);
+  rotator = setInterval(show, 2600);
+}
+function stopRotating() { clearInterval(rotator); rotator = null; }
+
 async function health() {
   try {
-    const r = await fetch("/api/health");
-    const h = await r.json();
+    const h = await (await fetch("/api/health")).json();
     perDeal = h.seconds_per_deal || perDeal;
+    perDealFirst = h.seconds_per_deal_first || perDealFirst;
+    if (typeof h.queries === "number") queriesDone = h.queries;
     const el = $("health");
     if (!h.ready) {
-      el.textContent = "· warming up the engine (first run after an edit takes about 80s)";
+      el.textContent = "· warming up";
       el.className = "status warn";
+      if (!rotator) { $("work").hidden = false; $("track").classList.add("idle");
+                      $("track-fill").style.width = "100%";
+                      $("track-fill").style.opacity = ".35";
+                      rotate(WARMING, $("zany")); }
+      $("work-meta").textContent =
+        "first run after an edit takes about 80 seconds";
       setTimeout(health, 1500);
     } else {
-      el.textContent = `· ready, ${h.workers} thread${h.workers === 1 ? "" : "s"}`;
+      el.textContent = `· ready · ${h.workers} thread${h.workers === 1 ? "" : "s"}`;
       el.className = "status";
+      if (!busyNow) { stopRotating(); $("work").hidden = true;
+                      $("track").classList.remove("idle");
+                      $("track-fill").style.opacity = "1"; }
     }
     document.querySelectorAll("button.go").forEach(b => b.disabled = !h.ready);
+    return h;
   } catch (e) {
     $("health").textContent = "· server not responding";
     $("health").className = "status warn";
     setTimeout(health, 2000);
+    return null;
   }
 }
 
 async function post(path, body) {
-  const r = await fetch(path, {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify(body)
-  });
+  const r = await fetch(path, {method: "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   const got = await r.json();
   if (!r.ok) throw new Error(got.error || `HTTP ${r.status}`);
   return got;
 }
 
-// ------------------------------------------------------------ evaluate
-const ORDER = ["order", "order alone", "pass"];
+/* ------------------------------------------------------------ evaluate */
+const board = Board($("deck"),
+  [{name: "hand", size: 5, el: $("hand-slots"), hint: ""},
+   {name: "up", size: 1, el: $("up-slots"), hint: "up"}],
+  () => refreshDeals());
 
+$("eval-clear").addEventListener("click", () => board.clear());
+$("eval-random").addEventListener("click", () => {
+  const d = shuffled();
+  board.setAll({hand: d.slice(0, 5), up: [d[5]]});
+});
+board.setAll({hand: ["TH", "AS", "AD", "KD", "JD"], up: ["9H"]});
+
+function chosenActions() {
+  return [...$("actions").querySelectorAll("input:checked")].map(i => i.value);
+}
 function seatsBefore() {
   const seat = +$("seat").value, dealer = +$("dealer").value;
-  let n = 0;
-  for (let i = 0; i < 4; i++) {
-    const s = (dealer + 1 + i) % 4;
-    if (s === seat) return n;
-    n++;
-  }
-  return n;
+  for (let i = 0; i < 4; i++) if ((dealer + 1 + i) % 4 === seat) return i;
+  return 0;
 }
-
+function estimate() {
+  const rate = queriesDone ? perDeal : perDealFirst;
+  return +$("deals").value * rate * (chosenActions().length / 3);
+}
 function refreshDeals() {
-  const d = +$("deals").value;
-  $("deals-label").textContent =
-    `— ${d.toLocaleString()}, about ${Math.max(1, Math.round(d * perDeal))}s`;
-  const before = seatsBefore();
-  $("speak").textContent =
-    before === 0 ? "You speak first."
-    : `${before} seat${before === 1 ? "" : "s"} speak before you — so the auction will not always reach you.`;
+  const d = +$("deals").value, secs = Math.max(1, Math.round(estimate()));
+  $("deals-label").textContent = `— ${d.toLocaleString()}, about ${secs}s` +
+    (queriesDone ? "" : " for the first one");
+  const n = seatsBefore();
+  $("speak").textContent = n === 0
+    ? "You speak first, so the bid is always yours to make."
+    : `${n} seat${n === 1 ? "" : "s"} speak before you — so the auction will not always reach you.`;
 }
+["deals", "seat", "dealer"].forEach(id =>
+  $(id).addEventListener("input", refreshDeals));
+$("actions").addEventListener("change", refreshDeals);
 
 function bar(ev, lo, hi, span) {
   const pos = (v) => Math.max(0, Math.min(1, (v - span[0]) / (span[1] - span[0]))) * 100;
   return `<div class="bar" title="95% interval">
-            <i style="left:${pos(lo)}%; width:${Math.max(1.5, pos(hi) - pos(lo))}%"></i>
-            <b style="left:${pos(ev)}%"></b></div>`;
+    <i style="left:${pos(lo)}%; width:${Math.max(1.5, pos(hi) - pos(lo))}%"></i>
+    <b style="left:${pos(ev)}%"></b></div>`;
 }
 
 function showEvaluation(e) {
-  const acts = ORDER.map(n => e.actions.find(a => a.action === n)).filter(Boolean);
+  const acts = e.actions;
   const lo = Math.min(...acts.map(a => a.ev - a.interval)) - 0.1;
   const hi = Math.max(...acts.map(a => a.ev + a.interval)) + 0.1;
   const best = acts.reduce((a, b) => (b.ev > a.ev ? b : a));
-
   $("eval-rows").innerHTML = acts.map(a => {
     const t = a.tricks || {}, n = t.contracts || 0;
     const pct = (k) => n ? `${Math.round(100 * (t[k] || 0) / n)}%` : "—";
     return `<tr>
-      <td>${a.action}${a === best ? ' <span class="tag">highest</span>' : ""}</td>
+      <td>${a.action}${a === best && acts.length > 1
+            ? ' <span class="tag">highest</span>' : ""}</td>
       <td class="num"><span class="ev">${a.ev >= 0 ? "+" : ""}${a.ev.toFixed(3)}</span>
-          <span class="pm">± ${a.interval.toFixed(3)}</span></td>
+        <span class="pm">± ${a.interval.toFixed(3)}</span></td>
       <td>${bar(a.ev, a.ev - a.interval, a.ev + a.interval, [lo, hi])}</td>
-      <td class="num">${pct("march")}</td>
-      <td class="num">${pct("made")}</td>
-      <td class="num">${pct("euchred")}</td>
-    </tr>`;
+      <td class="num">${pct("march")}</td><td class="num">${pct("made")}</td>
+      <td class="num">${pct("euchred")}</td></tr>`;
   }).join("");
-
-  const reach = acts[0] ? Math.round(100 * acts[0].reach_rate) : 100;
+  const reach = Math.round(100 * (acts[0] ? acts[0].reach_rate : 1));
   const overlap = acts.some(a => a !== best &&
                             a.ev + a.interval >= best.ev - best.interval);
   $("eval-caveat").innerHTML =
-    `Measured over the ${reach}% of deals where the auction reached you — the only
-     deals on which you ever face the choice. Trick shares are of the contracts
-     your team ended up with.` +
-    (overlap
-      ? ` <strong>The intervals overlap</strong>, so this run does not separate the
-          top actions. Going alone needs about four times the deals for the same
-          precision, because its outcomes run −2 to +4.`
+    `Measured over the ${reach}% of deals where the auction reached you — the
+     only deals on which you ever face the choice. Trick shares are of the
+     contracts your team ended up with.` +
+    (overlap && acts.length > 1
+      ? ` <strong>These ranges overlap</strong>, so this run does not separate
+          the top actions. Play more deals if you need to know which is really
+          better.`
       : "");
   $("eval-out").hidden = false;
 }
 
-$("deals").addEventListener("input", refreshDeals);
-$("seat").addEventListener("change", refreshDeals);
-$("dealer").addEventListener("change", refreshDeals);
+let busyNow = false;
 
-$("form-eval").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const btn = $("run-eval"), status = $("eval-status"), err = $("eval-error");
-  err.hidden = true; btn.disabled = true;
-  const deals = +$("deals").value;
-  status.textContent = `· playing ${deals.toLocaleString()} deals three times…`;
+async function watchProgress(total) {
+  const t0 = performance.now();
+  tick = setInterval(async () => {
+    const secs = (performance.now() - t0) / 1000;
+    let pct = Math.min(0.97, secs / Math.max(total, 0.5));
+    let stage = "";
+    try {
+      const h = await (await fetch("/api/health")).json();
+      if (h.busy && h.progress > 0) { pct = h.progress; stage = h.stage; }
+    } catch (e) { /* the query itself will report the failure */ }
+    $("track-fill").style.width = (pct * 100).toFixed(1) + "%";
+    $("work-meta").textContent =
+      `${Math.round(pct * 100)}% · ${secs.toFixed(0)}s elapsed` +
+      (stage ? ` · pricing “${stage}”` : "") +
+      ` · about ${Math.round(total)}s in all`;
+  }, 700);
+}
+
+$("run-eval").addEventListener("click", async () => {
+  const err = $("eval-error"); err.hidden = true;
+  const actions = chosenActions();
+  const hand = board.get("hand"), up = board.get("up")[0];
+  if (hand.includes(null) || !up)
+    return fail(err, "Pick five cards and an up-card first.");
+  if (!actions.length)
+    return fail(err, "Tick at least one thing to price.");
+
+  busyNow = true;
+  $("run-eval").disabled = true;
+  $("eval-out").hidden = true;
+  $("work").hidden = false;
+  $("track").classList.remove("idle");
+  $("track-fill").style.width = "0%";
+  rotate(ZANY, $("zany"));
+  const total = estimate();
+  watchProgress(total);
   const t0 = performance.now();
   try {
     const got = await post("/api/evaluate", {
-      hand: $("hand").value, up_card: $("up").value,
-      seat: +$("seat").value, dealer: +$("dealer").value, deals
-    });
+      hand: hand.join(" "), up_card: up, seat: +$("seat").value,
+      dealer: +$("dealer").value, deals: +$("deals").value, actions});
+    $("track-fill").style.width = "100%";
     showEvaluation(got);
-    status.textContent = `· ${((performance.now() - t0) / 1000).toFixed(1)}s`;
+    $("zany").innerHTML = "<b>Done.</b>";
+    $("work-meta").textContent =
+      `${got.deals.toLocaleString()} deals × ${actions.length} ` +
+      `in ${((performance.now() - t0) / 1000).toFixed(1)}s`;
   } catch (e) {
-    err.textContent = e.message; err.hidden = false; status.textContent = "";
-  } finally { btn.disabled = false; }
+    fail(err, e.message);
+    $("work").hidden = true;
+  } finally {
+    busyNow = false; clearInterval(tick); stopRotating();
+    $("run-eval").disabled = false;
+  }
 });
 
-// --------------------------------------------------------------- solve
-const SAMPLE = ["AS KD JS JH AD", "TC KH AC KS TH",
-                "QS TS 9S JD 9D", "9C AH JC KC QH"];
-$("solve-hands").innerHTML = SAMPLE.map((h, i) =>
-  `<div style="flex:1 1 180px"><label for="h${i}">Seat ${i}</label>
-   <input type="text" id="h${i}" value="${h}" spellcheck="false"></div>`).join("");
+function fail(el, message) { el.textContent = message; el.hidden = false; }
+
+/* --------------------------------------------------------------- solve */
+$("solve-hands").innerHTML = [0, 1, 2, 3].map(i =>
+  `<div class="handrow"><span class="who">Seat ${i}</span>
+   <div class="slots" id="sh${i}"></div></div>`).join("");
+
+const sBoard = Board($("s-deck"),
+  [...[0, 1, 2, 3].map(i => ({name: "h" + i, size: 5, el: $("sh" + i)})),
+   {name: "up", size: 1, el: $("s-up-slots"), hint: "up"}]);
+
+$("solve-clear").addEventListener("click", () => sBoard.clear());
+$("solve-random").addEventListener("click", () => {
+  const d = shuffled();
+  sBoard.setAll({h0: d.slice(0, 5), h1: d.slice(5, 10), h2: d.slice(10, 15),
+                 h3: d.slice(15, 20), up: [d[20]]});
+});
+$("solve-random").click();
 
 function showSolution(s) {
-  $("solve-auction").innerHTML =
-    `<div class="scroll"><table><tbody>` +
+  const seatCard = (p) => `${SHOWN[p.card[0]]}${suitOf(p.card).sym}`;
+  $("solve-auction").innerHTML = `<div class="scroll"><table><tbody>` +
     s.auction.map(l => `<tr><td>${l}</td></tr>`).join("") +
-    (s.passed_out
-      ? `<tr><td><strong>Nobody took it.</strong></td></tr>`
+    (s.passed_out ? `<tr><td><strong>Nobody took it.</strong></td></tr>`
       : `<tr><td><strong>seat ${s.caller} in ${s.trump}${s.alone ? ", alone" : ""}` +
         `${s.discard ? ` (dealer pitched ${s.discard})` : ""} — ` +
         `${s.caller_tricks} trick${s.caller_tricks === 1 ? "" : "s"}, ` +
         `${s.caller_score >= 0 ? "+" : ""}${s.caller_score} to them</strong></td></tr>`) +
-    (s.options ? `<tr><td>Options for seat ${s.options_seat}: ` +
-       Object.entries(s.options).map(([k, v]) =>
-         `${k} <strong>${v >= 0 ? "+" : ""}${v}</strong>`).join(" · ") +
-       `</td></tr>` : "") +
-    `</tbody></table></div>`;
+    (s.options ? `<tr><td>Best bids for seat ${s.options_seat}: ` +
+      Object.entries(s.options).map(([k, v]) =>
+        `${k} <strong>${v >= 0 ? "+" : ""}${v}</strong>`).join(" · ") +
+      `</td></tr>` : "") + `</tbody></table></div>`;
   $("solve-tricks").innerHTML = s.tricks.map(t =>
     `<tr><td class="num">${t.number}</td>
-     <td><code>${t.plays.map(p => `${p.card}<span class="pm">/${p.seat}</span>`).join("  ")}</code></td>
+     <td>${t.plays.map(p => `<span class="${suitOf(p.card).red ? "red" : "black"}"
+       style="font-weight:600">${seatCard(p)}</span><span class="pm">/${p.seat}</span>`)
+       .join("&nbsp; ")}</td>
      <td class="num">seat ${t.winner}</td></tr>`).join("")
     || `<tr><td colspan="3" class="pm">no play — the deal was passed out</td></tr>`;
   $("solve-out").hidden = false;
 }
 
-$("form-solve").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const btn = $("run-solve"), status = $("solve-status"), err = $("solve-error");
-  err.hidden = true; btn.disabled = true; status.textContent = "· solving…";
+$("run-solve").addEventListener("click", async () => {
+  const err = $("solve-error"), status = $("solve-status");
+  err.hidden = true;
+  if (!sBoard.full())
+    return fail(err, "Fill all four hands and the up-card — “Deal at random” does it for you.");
+  $("run-solve").disabled = true; status.textContent = "· solving…";
   try {
     const seat = $("s-seat").value;
     const got = await post("/api/solve", {
-      hands: [0, 1, 2, 3].map(i => $("h" + i).value),
-      up_card: $("s-up").value, dealer: +$("s-dealer").value,
-      seat: seat === "" ? null : +seat
-    });
+      hands: [0, 1, 2, 3].map(i => sBoard.get("h" + i).join(" ")),
+      up_card: sBoard.get("up")[0], dealer: +$("s-dealer").value,
+      seat: seat === "" ? null : +seat});
     showSolution(got);
     status.textContent = `· ${(got.took_seconds * 1000).toFixed(0)} ms`;
-  } catch (e) {
-    err.textContent = e.message; err.hidden = false; status.textContent = "";
-  } finally { btn.disabled = false; }
+  } catch (e) { fail(err, e.message); status.textContent = ""; }
+  finally { $("run-solve").disabled = false; }
 });
 
-// ----------------------------------------------------------------- tabs
+/* ---------------------------------------------------------------- tabs */
+const PANELS = {eval: "panel-eval", solve: "panel-solve", about: "panel-about"};
 function tab(which) {
-  const on = which === "eval";
-  $("tab-eval").setAttribute("aria-selected", on);
-  $("tab-solve").setAttribute("aria-selected", !on);
-  $("panel-eval").hidden = !on;
-  $("panel-solve").hidden = on;
+  for (const [k, id] of Object.entries(PANELS)) {
+    $("tab-" + k).setAttribute("aria-selected", String(k === which));
+    $(id).hidden = k !== which;
+  }
 }
-$("tab-eval").addEventListener("click", () => tab("eval"));
-$("tab-solve").addEventListener("click", () => tab("solve"));
+Object.keys(PANELS).forEach(k =>
+  $("tab-" + k).addEventListener("click", () => tab(k)));
 
 refreshDeals();
 health();

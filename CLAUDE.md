@@ -1201,9 +1201,24 @@ Four things about it are deliberate:
 
 `api.Engine` is what a long-lived process should hold: one transposition table
 for the life of the process instead of 134 MB allocated per call, and since
-the table is never cleared the queries warm each other. Measured on the worked
-example at 1,000 deals: 7.3 s with a fresh table each call, 5.0 s with a shared
-one by the third query.
+the table is never cleared the queries warm each other. **The first query of a
+process costs two to three times the ones after it** -- 10.4 s against 4.7 s
+for three actions over 1,000 deals -- which is why `api` carries two rates,
+`SECONDS_PER_DEAL` and `SECONDS_PER_DEAL_FIRST`, and `Engine.status` reports
+how many queries have run so the page can quote the right one.
+
+That same warming is a trap when measuring: runs get faster through a session,
+and a careless A/B reads "no progress" as slower than "with progress". Warm a
+fresh table before timing anything, and compare like with like.
+
+`Engine.status` also carries live progress -- the fraction done and which
+action is being priced -- which works without job ids precisely because
+queries are serialised: there is only ever one to report on. Reporting it
+means the sweep runs in blocks with a barrier at each one, so
+`hand_ev.DEALS_PER_CHUNK_PER_BLOCK` sets how much work a chunk must have
+inside a block to be worth the barrier. Without that floor a small sweep
+collapses: 1,000 deals took 13.5 s against 5.6 s, because 20 blocks over 40
+chunks is barely one deal per chunk before every thread stops to wait.
 
 `tests/test_server.py` runs mostly against a stub engine, so the suite does not
 pay for numba to load; one class at the end uses the real one at eight deals to
