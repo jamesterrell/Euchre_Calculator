@@ -454,10 +454,15 @@ class Engine:
 
     Three things a long-lived process needs and a bare function call does not:
 
-    **A table that survives.** `run_fast` allocates 134 MB per call otherwise,
+    **A table that survives.** `run_fast` allocates one per call otherwise,
     and `evaluate` makes three. It is never cleared and its entries are keyed
     by everything their value depends on, so a query inherits whatever the
     last one learned -- the table is not just reused, it gets warmer.
+
+    That is also why it takes no deal count. It used to be sized from one,
+    which left a 1,000-deal query on a 134 MB table and cost it 2x against the
+    same query on the full-size one -- for no saving, since the allocation is
+    lazily-zeroed pages. `hand_ev.default_tt_bits` has the measurements.
 
     **A lock.** One query already uses every core it is given. Two at once
     oversubscribe numba's thread pool and both get slower, so queries are
@@ -471,10 +476,11 @@ class Engine:
     has happened.
     """
 
-    def __init__(self, workers: int = 1, tt_bits: Optional[int] = None,
-                 deals: int = DEALS):
+    def __init__(self, workers: int = 1, tt_bits: Optional[int] = None):
         self.workers = max(1, int(workers))
-        self._table = hand_ev.new_table(tt_bits, deals)
+        if tt_bits is None:
+            tt_bits = hand_ev.default_tt_bits()
+        self._table = hand_ev.new_table(tt_bits)
         self._lock = threading.Lock()
         self._ready = False
         self._stage = ""

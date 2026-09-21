@@ -4,143 +4,249 @@
 <title>Euchre calculator</title>
 
 <style>
+  /* ---------------------------------------------------------------------
+     Windows XP Solitaire. Everything sits straight on the felt: no window,
+     no panels, sections divided by a light green rule. The cards are the
+     real ones, cut out of XP's cards.dll by `build_cards.py` into a sprite
+     sheet at their native 71x96 -- see `.pc` below for what happens when
+     that sheet is not there.
+     --------------------------------------------------------------------- */
   :root {
-    color-scheme: light dark;
-    --bg: #fbfaf7; --fg: #1b1a17; --dim: #6b6862; --line: #ddd8cf;
-    --card: #fff; --felt: #edf1ec; --accent: #2f6f4e; --bad: #9c3b2e;
-    --warn: #8a6d1f; --red: #b03028; --black: #23221f;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #17181a; --fg: #e9e6e0; --dim: #9a968e; --line: #33353a;
-      --card: #24262a; --felt: #1c2220; --accent: #6bbd8e; --bad: #e08373;
-      --warn: #d8b44a; --red: #e8837a; --black: #e9e6e0;
-    }
+    color-scheme: light;
+    --table: #008000;           /* the felt, flat, as Solitaire paints it */
+    --rule: #5bc85b;            /* the light green a section ends on */
+    --face: #ece9d8;            /* the Luna control face */
+    --fg: #000; --dim: #4a4a42; --line: #aca899;
+    --red: #e00000; --black: #000; --hilite: #0a246a;
+    --on-felt: #f2fbf2;         /* text that sits straight on the table */
+    --on-felt-dim: #c8e6c8;
+    --cap: #b6ecb6;             /* the little labels over each group */
+    --shadow: 1px 1px 2px rgba(0, 0, 0, .5);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg);
-    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 900px; margin: 0 auto; padding: 16px; }
-  h1 { font-size: 1.35rem; margin: 1.1rem 0 .2rem; letter-spacing: -.01em; }
-  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
-       color: var(--dim); margin: 1.5rem 0 .55rem; font-weight: 600; }
-  h3 { font-size: 1rem; margin: 1.4rem 0 .3rem; }
-  p.lede { color: var(--dim); margin: 0 0 1.2rem; }
-  fieldset { border: 1px solid var(--line); border-radius: 10px;
-             background: var(--card); padding: 14px; margin: 0 0 14px; }
-  legend { padding: 0 6px; color: var(--dim); font-size: .78rem;
-           text-transform: uppercase; letter-spacing: .07em; }
-  label { font-size: .82rem; color: var(--dim); }
+  body {
+    margin: 0; color: var(--fg); background: var(--table);
+    font: 14px/1.5 Tahoma, Verdana, "Segoe UI", Geneva, sans-serif;
+  }
+  /* Wide enough for six full-size cards beside five more and a column of
+     controls -- 451 + 443 + gutters on the solve tab, which is the tighter
+     of the two. */
+  main { max-width: 1180px; margin: 0 auto; padding: 14px 16px 40px; }
+
+  h1 { margin: 6px 0 .2rem; font-size: 1.2rem; font-weight: 700;
+       color: #fff; text-shadow: var(--shadow); }
+  h1::before { content: "\2660"; margin-right: 8px; color: #ffe9a8; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em;
+       color: #fff; margin: 1.5rem 0 .5rem; font-weight: 700;
+       text-shadow: var(--shadow); }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .3rem; color: #fff;
+       text-shadow: var(--shadow); }
+  p.lede { color: var(--on-felt-dim); margin: 0 0 .6rem;
+           text-shadow: var(--shadow); }
+
+  /* ---- sections: no panel, just a rule under each one ---- */
+  fieldset { border: none; border-bottom: 1px solid var(--rule);
+             background: none; padding: 0 0 18px; margin: 0 0 18px; }
+  legend { padding: 0; color: var(--cap); font-size: .74rem; font-weight: 700;
+           text-transform: uppercase; letter-spacing: .07em;
+           text-shadow: var(--shadow); }
+  label { font-size: .8rem; color: var(--on-felt-dim);
+          text-shadow: var(--shadow); }
+
+  /* ---- Luna controls: the one thing that is still a widget ---- */
   select, button, input[type=range] {
-    font: inherit; color: inherit; background: var(--bg);
-    border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; }
+    font: inherit; color: #000; border-radius: 3px; padding: 4px 8px;
+    border: 1px solid #7f9db9;
+    background: linear-gradient(180deg, #fff 0%, #f4f2ea 48%, #e2dfd0 100%);
+  }
+  select:hover, button:hover { border-color: #e59700;
+    background: linear-gradient(180deg, #fff 0%, #fff3d6 48%, #ffd98a 100%); }
+  select:focus, button:focus { outline: 1px dotted #fff; outline-offset: 2px; }
+  button { cursor: pointer; }
+  button:active { background: linear-gradient(180deg, #d8d4c4, #efece1); }
+  input[type=range] { accent-color: #cdeacd; padding: 0; border: none;
+                      background: none; }
   .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
   .row > div { min-width: 0; }
-  button.go { background: var(--accent); color: #fff; border-color: transparent;
-    font-weight: 600; padding: 9px 20px; cursor: pointer; }
-  button.go:disabled { opacity: .45; cursor: default; }
-  button.mini { padding: 4px 10px; font-size: .8rem; cursor: pointer; }
-  .note { font-size: .8rem; color: var(--dim); margin-top: 8px; }
-  .err { color: var(--bad); font-size: .87rem; margin-top: 10px; }
-  .status { font-size: .8rem; color: var(--dim); }
-  .status.warn { color: var(--warn); }
+  button.go {
+    color: #fff; font-weight: 700; padding: 7px 22px; border-radius: 3px;
+    border: 1px solid #033813; text-shadow: 0 1px 1px rgba(0, 0, 0, .45);
+    background: linear-gradient(180deg,
+      #4fc46f 0%, #17993c 45%, #0c7b2c 55%, #0a6b25 100%); }
+  button.go:hover { border-color: #e59700;
+    background: linear-gradient(180deg,
+      #67d987 0%, #1eab47 45%, #0f8a32 55%, #0b752a 100%); }
+  button.go:disabled { opacity: .6; cursor: default; border-color: #3b3b35;
+    background: linear-gradient(180deg, #b9b6a8, #97948a); }
+  button.mini { padding: 3px 10px; font-size: .78rem; }
+  .note { font-size: .78rem; color: var(--on-felt-dim); margin-top: 8px;
+          text-shadow: var(--shadow); }
+  .err { color: #8c0000; font-size: .85rem; margin-top: 10px; font-weight: 700;
+         background: #fff0ee; border: 1px solid #c58f88; padding: 6px 9px; }
+  .status { font-size: .78rem; color: var(--on-felt-dim); }
+  .status.warn { color: #ffe08a; font-weight: 700; }
 
-  /* ---- cards ---- */
+  /* ---- cards ----------------------------------------------------------
+     Native size, and the corners of the sprite are transparent, so the felt
+     shows through them exactly as it does in Solitaire. Without the sheet
+     the rules below draw a plain card instead -- the same box, the rank and
+     suit in two corners and a pip in the middle -- and `real-cards` on the
+     body, set once the sprite has loaded, swaps one for the other. */
   .deck { display: flex; flex-direction: column; gap: 5px; }
   .suitrow { display: flex; gap: 5px; flex-wrap: wrap; }
   .pc {
-    width: 40px; height: 56px; border: 1px solid var(--line); border-radius: 6px;
-    background: var(--card); display: flex; flex-direction: column;
-    align-items: center; justify-content: center; line-height: 1;
-    font-weight: 600; cursor: grab; user-select: none; flex: none;
-    transition: transform .08s, opacity .12s;
+    position: relative; width: 71px; height: 96px; flex: none;
+    border: 1px solid #1c1c1c; border-radius: 4px; background: #fff;
+    display: block; line-height: 1; font-weight: 700;
+    font-family: Tahoma, Verdana, sans-serif;
+    cursor: grab; user-select: none;
+    transition: transform .08s, opacity .12s, filter .08s;
   }
-  .pc:hover { transform: translateY(-2px); }
+  .pc:hover { transform: translateY(-4px);
+              filter: drop-shadow(0 4px 4px rgba(0, 0, 0, .5)); }
   .pc:active { cursor: grabbing; }
-  .pc .r { font-size: 1rem; }
-  .pc .s { font-size: 1.05rem; margin-top: 1px; }
+  .pc .ix { position: absolute; top: 4px; left: 5px;
+            width: 18px; text-align: center; }
+  .pc .ix.b { top: auto; left: auto; right: 5px; bottom: 4px;
+              transform: rotate(180deg); }
+  .pc .r { display: block; font-size: 1rem; letter-spacing: -.06em; }
+  .pc .s { display: block; font-size: .85rem; }
+  .pc .mid { position: absolute; inset: 0; display: flex; font-weight: 400;
+             align-items: center; justify-content: center; font-size: 2.4rem; }
   .pc.red { color: var(--red); } .pc.black { color: var(--black); }
-  .pc.used { opacity: .18; pointer-events: none; }
+  /* A card already placed is gone from the deck, not faded in it: dimming a
+     white card over green only makes a green card. It leaves the outline of
+     where it was, which is what an empty space looks like on a table. */
+  .pc.used { pointer-events: none; opacity: .22; }
+  .real-cards .pc.used { opacity: 1; background-image: none;
+    background: rgba(0, 0, 0, .13); border: 1px dashed rgba(255, 255, 255, .3);
+    border-radius: 4px; }
+  .real-cards .pc.used > span { display: none; }
   .pc.dragging { opacity: .4; }
+  /* The sheet is a row per suit in deck order and a column per rank; the
+     offset itself is set on the element, since only the deck knows it. */
+  .real-cards .pc { border: none; border-radius: 0; background: none;
+                    background-image: url("/static/cards.png"); }
+  .real-cards .pc > span { display: none; }
+
+  /* An empty slot is the table with a card's outline drawn on it. */
   .slot {
-    width: 40px; height: 56px; border: 1.5px dashed var(--line);
-    border-radius: 6px; background: var(--felt); flex: none;
+    width: 71px; height: 96px; flex: none; border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, .38); background: rgba(0, 0, 0, .13);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .25);
     display: flex; align-items: center; justify-content: center;
-    color: var(--dim); font-size: .7rem;
+    color: rgba(255, 255, 255, .65); font-size: .72rem;
   }
-  .slot.over { border-color: var(--accent); border-style: solid;
-               background: color-mix(in srgb, var(--accent) 14%, var(--felt)); }
-  .slot .pc { cursor: pointer; border-style: solid; }
+  .slot.over { border-color: #ffe08a; background: rgba(255, 224, 138, .22);
+               box-shadow: inset 0 0 0 1px #ffe08a; }
+  .slot .pc { cursor: pointer; }
   .slots { display: flex; gap: 6px; flex-wrap: wrap; }
   .handrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
              margin-bottom: 8px; }
-  .handrow .who { width: 52px; font-size: .8rem; color: var(--dim); }
-  /* The deck is six cards wide and the slots are five, so the two sit beside
-     each other inside 900px with room to spare -- stacked, they left half the
-     window empty. They wrap back to a column on a narrow screen. */
-  .pick { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  .handrow .who { width: 52px; font-size: .78rem; color: var(--on-felt-dim);
+                  text-shadow: var(--shadow); }
+  /* The deck is six cards wide and the slots five, which at full size is
+     451 and 379. They sit beside each other and wrap to a column when the
+     window cannot hold them. */
+  .pick { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
   .pick > .side { flex: 0 1 auto; min-width: 0; }
-  /* The last column takes whatever the two fixed ones leave -- 299px on the
-     evaluate tab, 235px on solve -- which is enough for two selects abreast
-     and a slider under them. */
-  .pick > .side.fill { flex: 1 1 200px; }
+  /* The last column takes whatever the two fixed ones leave -- about 280px
+     on the evaluate tab and 210 on solve, where a seat label sits beside
+     the slots. The basis is under both, or the column wraps to its own row. */
+  .pick > .side.fill { flex: 1 1 180px; }
   .pick .pair { display: flex; gap: 10px; }
   .pick .pair > div { flex: 1 1 0; min-width: 0; }
   .pick .pair select { width: 100%; }
-  .pick .cap { font-size: .72rem; text-transform: uppercase; color: var(--dim);
-               letter-spacing: .07em; margin: 0 0 5px; }
-  .pick .cap:not(:first-child) { margin-top: 14px; }
+  .pick .cap { font-size: .7rem; text-transform: uppercase; color: var(--cap);
+               letter-spacing: .07em; margin: 0 0 6px; font-weight: 700;
+               text-shadow: var(--shadow); }
+  .pick .cap:not(:first-child) { margin-top: 16px; }
 
   /* ---- checkboxes, with the button on the same line ---- */
   .actionbar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
   .actionbar .checks { flex: 1 1 auto; }
   .checks { display: flex; gap: 8px; flex-wrap: wrap; }
   .checks label { display: inline-flex; align-items: center; gap: 7px;
-    border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px;
-    cursor: pointer; background: var(--bg); color: var(--fg); font-size: .9rem; }
-  .checks input { accent-color: var(--accent); }
-  .checks label:has(input:checked) { border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, transparent); }
+    border: 1px solid #7f9db9; border-radius: 3px; padding: 5px 12px;
+    cursor: pointer; color: #000; font-size: .86rem; text-shadow: none;
+    background: linear-gradient(180deg, #fff 0%, #f4f2ea 48%, #e2dfd0 100%); }
+  .checks label:hover { border-color: #e59700; }
+  .checks input { accent-color: #316ac5; }
+  /* A ticked option reads as a selected Luna list item. */
+  .checks label:has(input:checked) { border-color: #0a246a; color: #fff;
+    background: linear-gradient(180deg, #4b8ef7 0%, #1f63dd 50%, #0f49bd 100%);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, .4); }
+  .checks label:has(input:checked):hover { border-color: #ffd98a; }
 
-  /* ---- progress ---- */
+  /* ---- progress: XP's row of green blocks ---- */
   #work { margin-top: 14px; }
-  .track { height: 10px; background: var(--line); border-radius: 5px;
-           overflow: hidden; }
-  .track i { display: block; height: 100%; background: var(--accent);
-             width: 0; transition: width .35s ease; }
+  .track { height: 17px; background: #fff; border: 1px solid #0a3d0a;
+           padding: 2px; overflow: hidden;
+           box-shadow: inset 1px 1px 1px rgba(0, 0, 0, .3); }
+  /* The gaps are transparent rather than painted, so the white well behind
+     shows through and the fill reads as a row of blocks. */
+  .track i { display: block; height: 100%; width: 0;
+    background:
+      repeating-linear-gradient(90deg, transparent 0 11px, #fff 11px 14px),
+      linear-gradient(180deg, #4fd06f 0%, #1a9e33 55%, #0d7d24 100%);
+    transition: width .35s ease; }
   .track.idle i { transition: none; }
-  .zany { margin-top: 9px; font-size: .92rem; min-height: 1.5em; }
-  .zany b { font-weight: 500; }
-  .meta { font-size: .78rem; color: var(--dim); margin-top: 3px;
-          font-variant-numeric: tabular-nums; }
+  .zany { margin-top: 9px; font-size: .9rem; min-height: 1.5em;
+          color: var(--on-felt); text-shadow: var(--shadow); }
+  .zany b { font-weight: 700; color: #fff; }
+  .meta { font-size: .76rem; color: var(--on-felt-dim); margin-top: 3px;
+          font-variant-numeric: tabular-nums; text-shadow: var(--shadow); }
 
-  /* ---- results ---- */
-  table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
-  th { font-size: .74rem; text-transform: uppercase; letter-spacing: .06em;
-       color: var(--dim); font-weight: 600; }
+  /* ---- results: a white list with Luna column headers ---- */
+  table { border-collapse: collapse; width: 100%; background: #fff;
+          border: 1px solid #0a3d0a; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #d9d6c9;
+           text-shadow: none; }
+  th { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+       color: #10315e; font-weight: 700; border-right: 1px solid #c8c4b4;
+       border-bottom: 1px solid #8d8a7f;
+       background: linear-gradient(180deg, #fff 0%, #f1efe4 55%, #e2dfd0 100%); }
+  th:last-child { border-right: none; }
+  tbody tr:nth-child(even) { background: #f4f6fa; }
   td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .ev { font-size: 1.05rem; font-weight: 600; }
+  .ev { font-size: 1.05rem; font-weight: 700; }
   .pm { color: var(--dim); font-weight: 400; }
-  .bar { position: relative; height: 8px; background: var(--line);
-         border-radius: 4px; min-width: 100px; }
-  .bar i { position: absolute; top: 0; height: 8px; background: var(--accent);
-           opacity: .45; border-radius: 4px; }
+  .bar { position: relative; height: 10px; min-width: 100px; background: #fff;
+         border: 1px solid #9d9d95;
+         box-shadow: inset 1px 1px 1px rgba(0, 0, 0, .2); }
+  .bar i { position: absolute; top: 0; height: 8px;
+           background: linear-gradient(180deg, #6ddf8c, #17993c); opacity: .95; }
   .bar b { position: absolute; top: -3px; width: 2px; height: 14px;
-           background: var(--fg); }
+           background: #10315e; }
   .scroll { overflow-x: auto; }
-  code { font-family: ui-monospace, monospace; font-size: .92em; }
-  .tag { display: inline-block; font-size: .72rem; padding: 1px 8px;
-         border: 1px solid var(--line); border-radius: 999px; color: var(--dim); }
-  .caveat { border-left: 3px solid var(--line); padding: 3px 0 3px 12px;
-            color: var(--dim); font-size: .86rem; margin-top: 14px; }
-  .tabs { display: flex; gap: 6px; margin: 1.5rem 0 .9rem; flex-wrap: wrap; }
-  .tabs button { cursor: pointer; }
-  .tabs button[aria-selected=true] { background: var(--card);
-    border-color: var(--fg); font-weight: 600; }
-  .about p, .about li { max-width: 62ch; }
+  code { font-family: "Lucida Console", ui-monospace, monospace; font-size: .9em;
+         background: #ffffe1; border: 1px solid #c9b475; padding: 0 3px;
+         color: #333; text-shadow: none; }
+  .tag { display: inline-block; font-size: .7rem; padding: 1px 7px;
+         border: 1px solid #7f9db9; border-radius: 2px; color: #10315e;
+         background: #eef3fb; }
+  /* A caveat is the yellow balloon tip, not a quiet aside. */
+  .caveat { border: 1px solid #c9b475; border-left-width: 4px;
+            background: #ffffe1; padding: 7px 10px; color: #3d3820;
+            font-size: .84rem; margin-top: 14px; text-shadow: none; }
+
+  /* ---- the tab row, drawn as Solitaire's menu bar ---- */
+  .tabs { display: flex; gap: 0; margin: .7rem 0 1.2rem; padding: 2px;
+          flex-wrap: wrap; background: var(--face); border: 1px solid #0a3d0a;
+          box-shadow: inset 1px 1px 0 #fff; }
+  .tabs button { cursor: pointer; border: none; border-radius: 0;
+                 background: transparent; color: #000; font-weight: 400;
+                 padding: 3px 13px; text-shadow: none; }
+  .tabs button:hover { background: #316ac5; color: #fff; }
+  .tabs button[aria-selected=true] { font-weight: 700; color: #fff;
+                                     background: var(--hilite); }
+  section { margin-top: 1rem; }
+  /* The About tab is prose straight on the table, so it is light. */
+  .about p, .about li { max-width: 62ch; color: var(--on-felt);
+                        text-shadow: var(--shadow); }
   .about ul { padding-left: 1.1rem; }
   .about .big { font-size: 1.05rem; }
+  .about .note { color: var(--on-felt-dim); }
 </style>
 
 <main>
@@ -379,8 +485,12 @@ const $ = (id) => document.getElementById(id);
 
 /* ------------------------------------------------------------- the deck */
 const SUITS = [
-  {k: "S", sym: "♠", red: false}, {k: "H", sym: "♥", red: true},
-  {k: "D", sym: "♦", red: true},  {k: "C", sym: "♣", red: false}];
+  {k: "S", sym: "♠", red: false, name: "spades"},
+  {k: "H", sym: "♥", red: true,  name: "hearts"},
+  {k: "D", sym: "♦", red: true,  name: "diamonds"},
+  {k: "C", sym: "♣", red: false, name: "clubs"}];
+/* One card of the sheet, at the size cards.dll drew them. */
+const CARD_W = 71, CARD_H = 96, CARD_SHEET = "/static/cards.png";
 const RANKS = ["9", "T", "J", "Q", "K", "A"];
 const SHOWN = {9: "9", T: "10", J: "J", Q: "Q", K: "K", A: "A"};
 const DECK = [].concat(...SUITS.map(s => RANKS.map(r => r + s.k)));
@@ -391,9 +501,29 @@ function cardEl(id, draggable) {
   el.className = "pc " + (s.red ? "red" : "black");
   el.dataset.card = id;
   el.draggable = !!draggable;
-  el.innerHTML = `<span class="r">${SHOWN[id[0]]}</span><span class="s">${s.sym}</span>`;
+  el.setAttribute("aria-label", SHOWN[id[0]] + " of " + s.name);
+  /* The sprite sheet is a column per rank and a row per suit, in the order
+     RANKS and SUITS are declared in, so the offset is just the two indices.
+     Under it, and what shows if the sheet is missing, is a drawn card: rank
+     over suit in one corner, the same block upside down in the other, and a
+     pip in the middle. */
+  el.style.backgroundPosition =
+    `-${RANKS.indexOf(id[0]) * CARD_W}px -${SUITS.indexOf(s) * CARD_H}px`;
+  const ix = `<span class="ix"><span class="r">${SHOWN[id[0]]}</span>` +
+             `<span class="s">${s.sym}</span></span>`;
+  el.innerHTML = ix + ix.replace('class="ix"', 'class="ix b"') +
+                 `<span class="mid">${s.sym}</span>`;
   return el;
 }
+
+/* XP's cards.dll is Microsoft's and is not in this repo, so the sheet
+   `build_cards.py` makes from it may not be there. Ask for it once; only if
+   it answers do the drawn cards give way to the real ones. */
+(function () {
+  const probe = new Image();
+  probe.onload = () => document.body.classList.add("real-cards");
+  probe.src = CARD_SHEET;
+})();
 
 /* A board is a set of named slot groups sharing one deck. */
 function Board(deckEl, groups, onChange) {

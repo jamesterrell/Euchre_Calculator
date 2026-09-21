@@ -459,26 +459,34 @@ FAST = "fast"
 PYTHON = "python"
 ENGINES = (FAST, PYTHON)
 
-# How big a transposition table to give the compiled engine, by sweep size.
-# It is shared by every thread and never cleared, so it wants to be roughly as
-# big as the number of distinct positions the whole sweep will look at; past
-# that it is only paying for cache misses, and short of it the sweep pays by
-# re-searching. It is the single biggest thing between this script and its old
-# runtime. Measured on `TH AS AD KD JD` with `9H` up, 10,000 deals at ten
-# threads, at 8 bytes a slot:
+# How big a transposition table to give the compiled engine. It is shared by
+# every thread and never cleared, and it is the single biggest thing between
+# this script and its old runtime.
 #
-#     2^24   134 MB   23.1 s
-#     2^25   268 MB   21.6 s
-#     2^26   537 MB   20.3 s
-#     2^27   1.1 GB   19.4 s
+# There is no size to choose, because bigger is better everywhere and costs
+# nothing. 2^27 buys 4% over 2^26 and a whole gigabyte, so 2^26 is the ceiling;
+# below it, measured on `TH AS AD KD JD` with `9H` up through `api.evaluate`
+# -- three actions, ten threads, warm table, ms per deal:
 #
-# So 2^26 is the cap: the gigabyte past it buys 4%. The default scales with
-# the sweep and then takes no more than an eighth of the machine's memory,
-# which is a lot to ask quietly -- `describe` prints what it took, and
-# `--tt-bits` overrides it in either direction.
+#      deals     2^24     2^26    ratio
+#        250     4.81     3.59    1.34x
+#      1,000     8.28     3.75    2.21x
+#      4,000    11.07     6.29    1.76x
+#     10,000    10.00     7.50    1.33x
+#
+# 2^26 wins at every one of them. The ratio is not monotone in the deal count
+# and no trend should be read off it -- an earlier version of this comment did
+# exactly that and was wrong. The allocation is lazily-zeroed pages and costs
+# nothing measurable up front (0.00 s for 2^26), so there is nothing on the
+# other side of the trade.
+#
+# This used to scale with `deals`, which left a 1,000-deal query on 2^24 and
+# cost it 2.2x for no saving. So the only question left is what the machine
+# can spare: no more than an eighth of physical memory, which is still a lot
+# to ask quietly. `describe` prints what it took and `--tt-bits` overrides it
+# in either direction.
 TT_MIN_BITS = 22
 TT_MAX_BITS = 26
-TT_SLOTS_PER_DEAL = 16384
 TT_MEMORY_SHARE = 8
 
 # Pieces of work per thread, for load balance. See `run_fast`.
@@ -526,22 +534,22 @@ def system_memory():
     return None
 
 
-def tt_bits_for(deals: int) -> int:
+def default_tt_bits() -> int:
     """
-    Slots enough for the sweep, and not more than the machine can spare.
+    How big a transposition table to allocate: as much as the machine spares.
 
-    Falls back to the floor rather than guessing when the memory size cannot
-    be read: a table that is too small costs time, and one that is too big
-    costs the user their machine.
+    Deliberately not a function of the sweep size. 2^26 is faster at every
+    sweep size measured and the allocation costs nothing up front, so there is
+    nothing to trade off -- see the table above the constants. Falls back to
+    the floor rather than guessing when the memory size cannot be read: a
+    table that is too small costs time, and one that is too big costs the user
+    their machine.
     """
     ram = system_memory()
-    cap = TT_MAX_BITS
-    if ram:
-        cap = TT_MIN_BITS
-        while cap < TT_MAX_BITS and (1 << (cap + 1)) * 8 <= ram // TT_MEMORY_SHARE:
-            cap += 1
+    if not ram:
+        return TT_MIN_BITS
     bits = TT_MIN_BITS
-    while bits < cap and (1 << bits) < deals * TT_SLOTS_PER_DEAL:
+    while bits < TT_MAX_BITS and (1 << (bits + 1)) * 8 <= ram // TT_MEMORY_SHARE:
         bits += 1
     return bits
 
@@ -614,18 +622,17 @@ def _from_row(row, setup: Setup, god: bool) -> Record:
                   forced=bool(row[fastsim.R_FORCED]))
 
 
-def new_table(bits: Optional[int] = None, deals: int = DEALS):
+def new_table(bits: Optional[int] = None):
     """
     A transposition table a caller can hold on to across queries.
 
-    `run_fast` makes one per call otherwise, and at the default size that is
-    134 MB of zeroing every time. A long-lived process should make one of
-    these at boot and pass it in -- it is never cleared, so entries from the
-    last query are still true for the next one and the table only gets warmer.
+    `run_fast` makes one per call otherwise. A long-lived process should make
+    one at boot and pass it in -- it is never cleared, so entries from the last
+    query are still true for the next one and the table only gets warmer.
     """
     import numpy as np
 
-    return np.zeros(1 << (bits if bits is not None else tt_bits_for(deals)),
+    return np.zeros(1 << (bits if bits is not None else default_tt_bits()),
                     dtype=np.int64)
 
 
@@ -673,7 +680,7 @@ def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
     up = _card_id(setup.up_card) if setup.up_card is not None else -1
 
     pass_models, assumptions = codes(fastsim)
-    tt = table if table is not None else new_table(tt_bits, deals)
+    tt = table if table is not None else new_table(tt_bits)
     out = np.zeros((deals, fastsim.RECORD), dtype=np.int64)
     god = np.zeros((deals if both else 1, fastsim.RECORD), dtype=np.int64)
     counters = np.zeros((chunks, fastsim.COUNTERS), dtype=np.int64)
@@ -1011,7 +1018,7 @@ def describe(setup: Setup, args):
             print("  %-30s %s" % ("", "only that bid is pinned -- round two "
                                       "is yours to bid for yourself"))
     if setup.engine == FAST:
-        bits = args.tt_bits if args.tt_bits is not None             else tt_bits_for(args.deals)
+        bits = args.tt_bits if args.tt_bits is not None else default_tt_bits()
         print("  %-30s compiled, %d thread%s, %d MB transposition table"
               % ("engine", args.workers, "" if args.workers == 1 else "s",
                  (1 << bits) * 8 // 10 ** 6))

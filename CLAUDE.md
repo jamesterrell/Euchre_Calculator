@@ -173,7 +173,8 @@ pimc_example.py    one deal, every decision narrated -- read this one first
 hand_ev.py         EV of one pinned hand, played out by a PIMC sim table
 api.py             the two questions a front end asks: evaluate() and solve()
 server.py          a local web server over api.py, standard library only
-static/index.html  the page it serves: one file, no build step
+static/index.html  the page it serves: one file, no bundler
+build_cards.py     cuts static/cards.png out of XP's cards.dll -- optional
 tests/             the suite, see "Testing" below
   euchre_testkit.py  fixtures: named cards, line replay, and an exhaustive
                      no-pruning minimax used as the ground-truth oracle
@@ -1025,10 +1026,37 @@ Two design choices were measured rather than assumed, and one of them
   when the table is under pressure, since eight ways is also an eighth as many
   addresses. See `notes/equivalence.md`; it was rechecked only because a
   different bug forced a recheck.
-- **Size now matters much less than it did.** Same run: 2^24 slots (134 MB)
-  23.1 s, 2^25 21.6 s, 2^26 (537 MB) 20.3 s, 2^27 (1.1 GB) 19.4 s. Before the
-  value bounds it was 91 s at 2^24. `hand_ev.py` scales the default with the
-  sweep, stops at 2^26, and never takes more than an eighth of the machine.
+- **Bigger is always better, so there is no size to choose.** On the run this
+  was first measured on -- one action, `--assume order`, 10,000 deals at ten
+  threads -- 2^24 slots (134 MB) took 23.1 s, 2^25 21.6 s, 2^26 (537 MB)
+  20.3 s and 2^27 (1.1 GB) 19.4 s. Before the value bounds it was 91 s at
+  2^24. That 14% across 2^24 to 2^26 read like "size barely matters now", and
+  a second measurement on `api.evaluate` -- three actions, warm table, ten
+  threads, ms per deal -- says otherwise:
+
+  | deals  |  2^24 |  2^26 | ratio |
+  | ------ | ----- | ----- | ----- |
+  |    250 |  4.81 |  3.59 | 1.34x |
+  |  1,000 |  8.28 |  3.75 | 2.21x |
+  |  4,000 | 11.07 |  6.29 | 1.76x |
+  | 10,000 | 10.00 |  7.50 | 1.33x |
+
+  Between 1.3x and 2.2x, and **non-monotone in the deal count** -- it peaks
+  around 1,000 deals and falls off either side, which is not explained here.
+  Do not read a trend off that column; what it establishes is only that 2^26
+  wins everywhere measured. Since the allocation is lazily-zeroed pages and
+  costs nothing up front (0.00 s for 2^26), there is nothing to trade against
+  it, so `hand_ev.default_tt_bits()` takes no argument: 2^26 unless an eighth
+  of physical memory is less than that.
+
+  It used to scale with `deals`, which put a 1,000-deal query on 2^24 and cost
+  it 2.2x for no saving. That is what made the web app slower than the same
+  call made directly, since the server sized its table from `api.DEALS`.
+
+  **Note the two tables above are different workloads** -- one action against
+  three -- and are not comparable cell by cell. Reading a trend across them
+  was a real mistake made here, and the "gradient steepens as the sweep
+  shortens" claim it produced was wrong twice over.
 
 ### It caches, and that is why `_search` is flat
 
@@ -1166,9 +1194,36 @@ python server.py --workers 10          # http://127.0.0.1:8000
 python server.py --port 9000 --deals 2000
 ```
 
-Standard library only -- `ThreadingHTTPServer`, no Flask, no build step, and
+Standard library only -- `ThreadingHTTPServer`, no Flask, no bundler, and
 `static/index.html` is one file of vanilla HTML, CSS and JS. The repo's
 dependencies are still numpy, numba and jupyter.
+
+The page is styled as Windows XP Solitaire, and the cards are XP's own. They
+come from `cards.dll` -- the card library Windows shipped from 3.0 to XP --
+whose 52 faces are `RT_BITMAP` resources at 71x96. `build_cards.py` reads the
+24 a Euchre deck uses and writes `static/cards.png`, one sprite sheet, a row
+per suit and a column per rank in the page's own `SUITS` / `RANKS` order:
+
+```bash
+python build_cards.py cards.dll     # -> static/cards.png, 426x384
+```
+
+Three things about it are worth knowing.
+
+- **Both files are gitignored, and the page runs without them.** `cards.dll`
+  is Microsoft's and not ours to redistribute, so it is a build step rather
+  than a checked-in asset. `.pc` draws its own card -- rank over suit in two
+  corners, a pip in the middle -- and the page asks for the sheet once on
+  load, adding `real-cards` to the body only if it answers. Everything below
+  that swap is identical, since the drawn card is the same 71x96 box.
+- **Those bitmaps are older than Win32.** They carry a 12-byte
+  `BITMAPCOREHEADER` -- 16-bit dimensions, 3-byte palette entries -- not the
+  40-byte `BITMAPINFOHEADER`, and an `RT_BITMAP` resource has no
+  `BITMAPFILEHEADER` at all. `build_cards.py` handles both.
+- **The corners are cut to transparent.** Solitaire draws a card's rounded
+  corners as table, so they are flood-filled from each corner over white
+  pixels only. The outline is a closed loop in the suit's colour -- red for
+  the red suits -- which is why a fixed corner block would not do.
 
     GET  /                  the page
     GET  /api/health        {"ready", "busy", "workers", ...}
@@ -1200,8 +1255,9 @@ Four things about it are deliberate:
   bug, found by `tests/test_server.py` and not by hand-testing with curl.
 
 `api.Engine` is what a long-lived process should hold: one transposition table
-for the life of the process instead of 134 MB allocated per call, and since
-the table is never cleared the queries warm each other. **The first query of a
+for the life of the process instead of one allocated per call, and since the
+table is never cleared the queries warm each other. It takes no deal count --
+see the sizing note above, which is where `Engine(deals=...)` went. **The first query of a
 process costs two to three times the ones after it** -- 10.4 s against 4.7 s
 for three actions over 1,000 deals -- which is why `api` carries two rates,
 `SECONDS_PER_DEAL` and `SECONDS_PER_DEAL_FIRST`, and `Engine.status` reports

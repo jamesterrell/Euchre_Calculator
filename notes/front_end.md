@@ -194,10 +194,10 @@ Three things it has to handle:
 - **Serialise queries.** One query already uses every core through numba's
   `prange`; two at once oversubscribe the thread pool and both get slower. A
   lock and a queue, not a thread pool.
-- **The transposition table is 134 MB at 1,000 deals** and is allocated per
-  call inside `run_fast`. Hoisting it to live for the process is an obvious
-  win and needs a small change to `run_fast`'s signature -- worth doing, since
-  a 1,000-deal query spends ~0.1 s of its 2.8 s zeroing it.
+- **The transposition table is allocated per call inside `run_fast`.**
+  Hoisting it to live for the process is an obvious win and needs a small
+  change to `run_fast`'s signature -- worth doing, since a 1,000-deal query
+  spends ~0.1 s of its 2.8 s zeroing it.
 
 ## Proposed API
 
@@ -239,6 +239,23 @@ line.
    Worth more than the allocation it saves: the table is never cleared, so
    queries warm each other. On the worked example at 1,000 deals, 7.3 s with a
    fresh table each call against 5.0 s with a shared one by the third query.
+   **Then size it for the machine, not the query.** The first version kept
+   `hand_ev`'s sweep-scaled default, so `Engine(deals=1000)` took 2^24 slots
+   (134 MB) where a 10,000-deal CLI run took 2^26 (537 MB). That single
+   difference is the whole of why the web app felt slower than the same call
+   made directly -- measured through HTTP, 1,000 deals and three actions on
+   ten threads, **8.5 s at 2^24 against 4.2 s at 2^26**. Not HTTP overhead,
+   not the lock, not the progress polling: those three together are ~0.4 s.
+
+   The sizing was wrong generally, not just for the server. 2^26 beats 2^24
+   at every sweep size measured -- between 1.3x and 2.2x -- and the allocation
+   costs nothing up front, so there is no size to choose:
+   `hand_ev.default_tt_bits()` now takes 2^26 unless an eighth of physical
+   memory is less, and `Engine` takes no deal count at all. CLAUDE.md has the
+   table, including a warning against reading a trend off it: the benefit is
+   not monotone in the deal count, and two successive attempts to explain its
+   shape here were both wrong.
+
 3. ~~**The server.**~~ **Done** -- `server.py`, standard library only, and
    `static/index.html` as one file with no build step. It warms in a
    background thread and answers 503 until ready, serialises queries behind

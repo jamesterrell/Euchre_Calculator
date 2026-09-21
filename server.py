@@ -31,6 +31,11 @@ spends about a second loading cached machine code, and about eighty seconds
 finishes, `/api/health` reports `ready: false` and the query endpoints answer
 503 rather than hanging. The page polls and says what it is waiting for.
 
+**Its table is sized for the process, not for a request.** One transposition
+table serves every query and is never cleared, so it is allocated as large as
+the machine will spare rather than from any one request's deal count. That
+distinction is worth 2.3x -- `notes/front_end.md` has the table.
+
 **It serialises queries.** `api.Engine` holds a lock, because one query
 already uses every thread it is given and two at once just oversubscribe
 numba's pool. `ThreadingHTTPServer` is still the right base -- it lets
@@ -46,6 +51,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import api
+import hand_ev
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -213,8 +219,9 @@ class Handler(BaseHTTPRequestHandler):
         kind = {".html": "text/html; charset=utf-8",
                 ".css": "text/css; charset=utf-8",
                 ".js": "text/javascript; charset=utf-8",
-                ".svg": "image/svg+xml"}.get(os.path.splitext(path)[1],
-                                             "application/octet-stream")
+                ".svg": "image/svg+xml",
+                ".png": "image/png"}.get(os.path.splitext(path)[1],
+                                         "application/octet-stream")
         with open(path, "rb") as handle:
             return self._send(200, handle.read(), kind)
 
@@ -222,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
 def serve(host: str = "127.0.0.1", port: int = 8000, workers: int = 1,
           deals: int = api.DEALS, tt_bits=None, quiet: bool = False):
     """Start the server and block. Warms the engine in the background."""
-    engine = api.Engine(workers=workers, tt_bits=tt_bits, deals=deals)
+    engine = api.Engine(workers=workers, tt_bits=tt_bits)
     httpd = ThreadingHTTPServer((host, port), Handler)
     httpd.engine = engine
     httpd.deals = deals
@@ -265,7 +272,12 @@ def parse_args(argv=None):
                         help="default layouts per action when a request does "
                              "not say (default %d)" % api.DEALS)
     parser.add_argument("--tt-bits", type=int, default=None,
-                        help="log2 of the shared transposition table")
+                        help="log2 of the shared transposition table. The "
+                             "default is as much as the machine can spare, up "
+                             "to 2^%d (%d MB) -- it is reused by every query "
+                             "and bigger is markedly faster"
+                             % (hand_ev.TT_MAX_BITS,
+                                (1 << hand_ev.TT_MAX_BITS) * 8 // (1 << 20)))
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="no per-request log line")
     return parser.parse_args(argv)
