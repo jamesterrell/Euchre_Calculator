@@ -80,6 +80,13 @@
      window empty. They wrap back to a column on a narrow screen. */
   .pick { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
   .pick > .side { flex: 0 1 auto; min-width: 0; }
+  /* The last column takes whatever the two fixed ones leave -- 299px on the
+     evaluate tab, 235px on solve -- which is enough for two selects abreast
+     and a slider under them. */
+  .pick > .side.fill { flex: 1 1 200px; }
+  .pick .pair { display: flex; gap: 10px; }
+  .pick .pair > div { flex: 1 1 0; min-width: 0; }
+  .pick .pair select { width: 100%; }
   .pick .cap { font-size: .72rem; text-transform: uppercase; color: var(--dim);
                letter-spacing: .07em; margin: 0 0 5px; }
   .pick .cap:not(:first-child) { margin-top: 14px; }
@@ -150,7 +157,7 @@
   <!-- =============================================== evaluate -->
   <section id="panel-eval">
     <fieldset>
-      <legend>Your hand</legend>
+      <legend>Set it up</legend>
       <div class="pick">
         <div class="side">
           <p class="cap">The deck</p>
@@ -165,32 +172,25 @@
             <button class="mini" id="eval-clear" type="button">Clear</button>
             <button class="mini" id="eval-random" type="button">Random</button>
           </div>
-          <div class="note" style="margin-top:0">Drag a card, or just click it.
-            Click a placed card to take it back.</div>
         </div>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Table</legend>
-      <div class="row">
-        <div>
-          <label for="seat">Your seat</label><br>
-          <select id="seat"><option>0</option><option>1</option>
-            <option selected>2</option><option>3</option></select>
-        </div>
-        <div>
-          <label for="dealer">Dealer</label><br>
-          <select id="dealer"><option selected>0</option><option>1</option>
-            <option>2</option><option>3</option></select>
-        </div>
-        <div style="flex:1 1 240px">
-          <label for="deals">Deals to play <span id="deals-label"></span></label>
+        <div class="side fill">
+          <p class="cap">The table</p>
+          <div class="pair">
+            <div><label for="seat">Your seat</label><br>
+              <select id="seat"><option>0</option><option>1</option>
+                <option selected>2</option><option>3</option></select></div>
+            <div><label for="dealer">Dealer</label><br>
+              <select id="dealer"><option selected>0</option><option>1</option>
+                <option>2</option><option>3</option></select></div>
+          </div>
+          <p class="cap">Deals to play <span id="deals-label"></span></p>
           <input type="range" id="deals" min="100" max="10000" step="100"
                  value="1000" style="width:100%; padding:0">
+          <div class="note" id="speak" style="margin-top:10px"></div>
         </div>
       </div>
-      <div class="note" id="speak"></div>
+      <div class="note">Drag a card, or just click it. Click a placed card to
+        take it back.</div>
     </fieldset>
 
     <fieldset>
@@ -244,19 +244,16 @@
             <button class="mini" id="solve-random" type="button">Deal at random</button>
           </div>
         </div>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Table</legend>
-      <div class="row">
-        <div><label for="s-dealer">Dealer</label><br>
-          <select id="s-dealer"><option>0</option><option>1</option>
-            <option>2</option><option selected>3</option></select></div>
-        <div><label for="s-seat">Show bid options for</label><br>
-          <select id="s-seat"><option value="">nobody</option>
+        <div class="side fill">
+          <p class="cap">The table</p>
+          <div><label for="s-dealer">Dealer</label><br>
+            <select id="s-dealer"><option>0</option><option>1</option>
+              <option>2</option><option selected>3</option></select></div>
+          <p class="cap">Show bid options for</p>
+          <select id="s-seat" style="width:100%"><option value="">nobody</option>
             <option value="0" selected>seat 0</option><option value="1">seat 1</option>
-            <option value="2">seat 2</option><option value="3">seat 3</option></select></div>
+            <option value="2">seat 2</option><option value="3">seat 3</option></select>
+        </div>
       </div>
     </fieldset>
 
