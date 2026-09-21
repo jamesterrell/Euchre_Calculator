@@ -91,7 +91,9 @@
                letter-spacing: .07em; margin: 0 0 5px; }
   .pick .cap:not(:first-child) { margin-top: 14px; }
 
-  /* ---- checkboxes ---- */
+  /* ---- checkboxes, with the button on the same line ---- */
+  .actionbar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .actionbar .checks { flex: 1 1 auto; }
   .checks { display: flex; gap: 8px; flex-wrap: wrap; }
   .checks label { display: inline-flex; align-items: center; gap: 7px;
     border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px;
@@ -195,15 +197,16 @@
 
     <fieldset>
       <legend>What to price</legend>
-      <div class="checks" id="actions">
-        <label><input type="checkbox" value="order" checked> Order it up</label>
-        <label><input type="checkbox" value="order alone" checked> Order it alone</label>
-        <label><input type="checkbox" value="pass" checked> Pass</label>
+      <div class="actionbar">
+        <div class="checks" id="actions">
+          <label><input type="checkbox" value="order" checked> Order it up</label>
+          <label><input type="checkbox" value="order alone" checked> Order it alone</label>
+          <label><input type="checkbox" value="pass" checked> Pass</label>
+        </div>
+        <button class="go" id="run-eval" type="button">Evaluate</button>
       </div>
+      <div class="err" id="eval-error" hidden></div>
     </fieldset>
-
-    <button class="go" id="run-eval" type="button">Evaluate</button>
-    <div class="err" id="eval-error" hidden></div>
 
     <div id="work" hidden>
       <div class="track" id="track"><i id="track-fill"></i></div>
