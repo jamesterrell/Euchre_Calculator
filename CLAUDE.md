@@ -174,6 +174,8 @@ hand_ev.py         EV of one pinned hand, played out by a PIMC sim table
 api.py             the two questions a front end asks: evaluate() and solve()
 server.py          a local web server over api.py, standard library only
 static/index.html  the page it serves: one file, no bundler
+app.py             the desktop app: server.py in a pywebview window
+app.spec           PyInstaller build of app.py -> dist/EuchreCalculator.exe
 build_cards.py     cuts static/cards.png out of XP's cards.dll -- optional
 tests/             the suite, see "Testing" below
 archive/           superseded code, see "Archived approaches" below
@@ -1053,6 +1055,26 @@ the endpoints, the page or the card artwork.
 ```bash
 python server.py --workers 10          # http://127.0.0.1:8000
 ```
+
+The same page ships as a standalone Windows app -- its own window over Edge
+WebView2, no browser -- built with PyInstaller (`pip install pyinstaller
+pywebview`). The build bundles `static/cards.png`, so run `build_cards.py`
+first:
+
+```bash
+python app.py                          # the window, from source
+pyinstaller app.spec --distpath .      # -> ./EuchreCalculator.exe, ~65 MB
+```
+
+The exe is committed at the repo root so a clone runs without Python. Every
+rebuild committed adds ~65 MB to history for good, so rebuild deliberately.
+
+The exe copies its sources to `%LOCALAPPDATA%\EuchreCalculator\engine-<hash>`
+on first launch and imports from there, because a one-file exe unpacks to a new
+temp folder each run and numba's cache is keyed on the source path. Measured:
+first launch on a machine ~180 s to ready (compiling), every launch after ~38 s.
+Logs go to `%LOCALAPPDATA%\EuchreCalculatorpp.log`, since the exe has no
+console.
 
 ## Archived approaches
 

@@ -226,9 +226,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, handle.read(), kind)
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000, workers: int = 1,
-          deals: int = api.DEALS, tt_bits=None, quiet: bool = False):
-    """Start the server and block. Warms the engine in the background."""
+def make_server(host: str = "127.0.0.1", port: int = 8000, workers: int = 1,
+                deals: int = api.DEALS, tt_bits=None, quiet: bool = False):
+    """
+    Build the server and start warming its engine, without serving yet.
+
+    `port=0` takes any free port; read it back off `server_address`. This is
+    the half `app.py` needs, since it runs `serve_forever` on a thread of its
+    own and gives the main thread to the window.
+    """
     engine = api.Engine(workers=workers, tt_bits=tt_bits)
     httpd = ThreadingHTTPServer((host, port), Handler)
     httpd.engine = engine
@@ -243,7 +249,15 @@ def serve(host: str = "127.0.0.1", port: int = 8000, workers: int = 1,
               file=sys.stderr)
 
     threading.Thread(target=warm, daemon=True).start()
+    return httpd
 
+
+def serve(host: str = "127.0.0.1", port: int = 8000, workers: int = 1,
+          deals: int = api.DEALS, tt_bits=None, quiet: bool = False):
+    """Start the server and block. Warms the engine in the background."""
+    httpd = make_server(host=host, port=port, workers=workers, deals=deals,
+                        tt_bits=tt_bits, quiet=quiet)
+    engine = httpd.engine
     print("Euchre calculator on http://%s:%d  (%d thread%s, %d deals by "
           "default)" % (host, port, engine.workers,
                         "" if engine.workers == 1 else "s", deals),

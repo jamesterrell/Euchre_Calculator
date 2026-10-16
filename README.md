@@ -22,6 +22,15 @@ rather than the API.
 
 ## Quickstart
 
+**On Windows, no install needed:** clone or download the repo and double-click
+`EuchreCalculator.exe`. It opens in its own window and brings everything it
+needs, Python included. The first launch on a computer takes about three
+minutes while the engine compiles; after that it takes about forty seconds.
+Windows may warn that the app is unrecognised, because it isn't code-signed --
+click *More info*, then *Run anyway*.
+
+To run from source instead:
+
 ```bash
 git clone https://github.com/jamesterrell/Euchre_Calculator.git
 cd Euchre_Calculator

@@ -4,3 +4,7 @@ __pycache__/
 # copy of cards.dll and run `python build_cards.py`.
 cards.dll
 static/cards.png
+
+# PyInstaller output (pyinstaller app.spec)
+build/
+dist/
