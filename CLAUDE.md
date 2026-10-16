@@ -174,23 +174,10 @@ hand_ev.py         EV of one pinned hand, played out by a PIMC sim table
 api.py             the two questions a front end asks: evaluate() and solve()
 server.py          a local web server over api.py, standard library only
 static/index.html  the page it serves: one file, no bundler
+app.py             the desktop app: server.py in a pywebview window
+app.spec           PyInstaller build of app.py -> dist/EuchreCalculator.exe
 build_cards.py     cuts static/cards.png out of XP's cards.dll -- optional
 tests/             the suite, see "Testing" below
-  euchre_testkit.py  fixtures: named cards, line replay, and an exhaustive
-                     no-pruning minimax used as the ground-truth oracle
-  test_*.py          unit tests
-  test_loners.py     loners, solver and bidding both
-  test_position.py   partially played positions; replay along an optimal line
-  test_observation.py what a seat knows, and that sampled worlds respect it
-  test_table.py      the referee and the players, incl. the God Mode pin
-  test_hand_ev.py    the pinned-hand sweep: what stays pinned, deal order
-  test_race.py       sequential elimination: the epsilon stopping rule
-  test_axioms.py     the proposed axioms; pins the one that turned out false
-  test_fast_search.py randomised regression sweep for fast_search
-  test_bitcore.py    bitcore against fast_search: whole deals and positions
-  test_fastsim.py    the compiled sweep against the readable one
-  test_api.py        the front end's two entry points
-  test_server.py     the HTTP layer, mostly against a stub engine
 archive/           superseded code, see "Archived approaches" below
 ```
 
@@ -610,145 +597,11 @@ a wider band stops sooner.
 
 ### What honest players actually do
 
-Measured by `pimc_sweep.py` over 60 deals at 20 play samples and 10 bid samples
-per decision, loners allowed, dealer rotating. Sampling error is large at this
-size -- these are shapes, not constants.
-
-|                            | PIMC sim     | God Mode |
-| -------------------------- | ------------ | -------- |
-| passed out                 |  0%          |  0%      |
-| called alone               | 10%          |  1.7%    |
-| ordered up in round one    | 57/60        | 41/60    |
-| named a suit in round two  |  3/60        | 19/60    |
-| euchred                    | 43% of calls | 10%      |
-| marched                    | 10% of calls | 28%      |
-| mean tricks to the caller  | 2.75         | 3.55     |
-| mean points to the caller  | -0.10        | +1.02    |
-
-The two auctions land on the same trump suit 67% of the time and the same
-caller 55% of the time.
-
-**Seeing the other hands is worth about 1.26 points a deal.** `--head-to-head`
-puts the PIMC sim on one team and God Mode on the other, and plays each deal
-twice with the teams swapped so seat and dealer advantages cancel exactly rather
-than statistically. Over 50 deals: **-1.26 +/- 0.36 points per deal** to the
-sim. A euchre is worth 2, for scale.
-
-**The sim over-calls.** 43% of its contracts are euchred against God Mode's
-10%. How much of that is the optimizer's curse -- "take the best of several
-noisy averages" -- rather than the pass model below is **not settled**, and how
-far the sample count per decision has to go before a PIMC player's bidding
-stops moving is unmeasured. Do not assume it is flat.
-
-**Most of the over-calling is the pass model.** Same 40 deals with
-`pass_model="zero"`: the euchre rate falls to 20-28% and the average call goes
-from -0.17 to +0.65 points. Pricing a pass by running the rest of the auction in
-God Mode makes declining look worse than it is, because God Mode essentially
-always finds a call -- so the pass branch nearly always reads "an opponent ends
-up calling this", and never "it comes back around to me".
-
-**But the better-behaved bidder is not a better player, and this is a trap
-worth knowing about.** Head to head against God Mode, teams swapped on every
-deal: `"god"` scores -1.26 +/- 0.36 and `"zero"` scores -1.34 +/- 0.36 over the
-same 50 deals. Indistinguishable. Mean points *per call* flattered `"zero"`
-only because it is averaged over the deals a player chose to call, and silently
-drops what the deals it passed on cost it. That is `bidding.py`'s "passing is
-not free" turning up as a measurement trap rather than a bidding one -- do not
-read a per-call average as a strength number. What `"zero"` reliably is, is
-about 4x faster.
-
-**Two more pass models were tried, and both are worse. The attempt is worth
-recording because of what it rules out.**
-
-Both target the same flaw: `"god"` prices a pass at whatever the rest of the
-auction does, and inside a sampled world the other seats can see the hand this
-player is hiding, so the pass branch reads "an opponent calls this and makes
-it" far more often than a real table would. A seat with a bad hand then makes a
-desperate call because declining looked worse.
-
-- `"floor"` clamps a pass at zero **per sampled world**: `sum(max(g_w, 0))`.
-- `"guard"` is `"god"` plus one **decision-level** override: if every call is
-  negative once all the worlds are averaged, pass; otherwise price the pass
-  exactly as `"god"` does.
-
-They are not the same rule -- by Jensen the per-world clamp is systematically
-kinder to passing -- but they behave almost identically, which is the first
-thing the measurement settled.
-
-Profile over 60 deals, 20 play / 10 bid samples:
-
-|                           | `zero` | `god` | `floor` | `guard` |
-| ------------------------- | ------ | ----- | ------- | ------- |
-| euchred                   | 11.7%  | 36.7% | 15.3%   | **21.7%** |
-| ordered up in round one   | 58     | 54    | 33      | 37      |
-| named a suit in round two |  2     |  6    | 26      | 23      |
-| called alone              |  5.0%  |  8.3% | 18.3%   | 18.3%   |
-| passed out                |  0     |  0    | **1**   |  0      |
-| mean tricks to the caller | 3.57   | 2.85  | 3.54    | 3.40    |
-
-Both produce a far more realistic-looking auction than `"god"` -- round-one
-orders roughly halve and round-two calls rise five-fold, because a seat that is
-not frightened of declining turns the up-card down and names a better suit.
-`"floor"` produced **the first pass-out ever seen in a `pimc_sweep`**.
-
-**And both are significantly weaker players.** Head to head against God Mode,
-teams swapped on every deal, **250 deals each**:
-
-| pass model | margin per deal |
-| ---------- | --------------- |
-| `zero`     | **-1.064 +/- 0.152** |
-| `god`      | **-1.112 +/- 0.151** |
-| `guard`    | -1.388 +/- 0.167 |
-| `floor`    | -1.468 +/- 0.164 |
-
-`zero` and `god` are indistinguishable (0.048 apart), which reproduces the
-50-deal finding above at five times the sample. Both new models lose to both
-old ones by about 0.3 points a deal, z ~ 2.4-2.8. `guard` and `floor` are
-indistinguishable from each other (0.080 apart, z ~ 0.7), so **the per-world
-versus decision-level distinction accounts for almost none of the damage** --
-worth knowing, because it was the obvious hypothesis and it is wrong.
-
-**What actually costs the points.** `"guard"` differs from `"god"` in exactly
-one situation: when every call is negative and the least-bad call is still
-better than `"god"`'s estimate of passing, `"god"` takes that call and
-`"guard"` passes instead. That single change is the whole -0.276. So taking the
-**least-bad losing call beats passing**, and the intuition that a bad hand
-should be thrown in is simply wrong here. It is `bidding.py`'s "passing is not
-free" again, now measured on the PIMC side: if you pass, somebody else calls
-and scores, and `"god"`'s pessimism about that is closer to right than a floor
-at zero is.
-
-The euchre rate is not a strength metric. Across four models it is
-**uncorrelated** with head-to-head margin -- `zero` has the best euchre rate
-and the best margin, but `floor` has the second-best euchre rate and the worst
-margin. Judge a bidder head to head or not at all.
-
-**Nothing ever passes out, under either of the two original models** -- 0 of 60
-in the main sweep and 0 of 40 in all five diagnostic configurations. (`"floor"`,
-added later and covered above, does pass hands in.) That was the one prediction in
-this file that did not come true, and the pass model does not explain it:
-`"zero"` prices a pass at exactly nothing and still never throws a hand in. The
-reason is the number of chances. Eight seats bid in turn, and each round-two
-seat is choosing among three suits -- six options once loners are on. Somebody
-almost always finds something that looks positive, especially since the sim's
-estimates are optimistic to begin with. Getting a table to pass a deal out
-needs a model of what the *other* seats will do with it, which is exactly what
-neither pass model has. That is the next thing worth building.
-
-**Amended: it passes out about 0.2% of the time.** The sweeps above were too
-small to see it. A 10,000-deal `hand_ev.py` run on `JS AS 9H 9D TC` with `9S`
-up (pass model `"zero"`, loners on, epsilon 0.40) passed out **21 of 10,000**
-deals -- at which rate 60 deals predicts 0.1 pass-outs and 40 predicts 0.08, so
-seeing none of them was never evidence of never. The shape of the claim
-survives and the absolute version of it does not: passing out is rare rather
-than impossible, and it took a sweep three orders of magnitude bigger than the
-ones above to tell the difference. Worth re-reading as a caution about every
-other 0-of-60 in this file.
-
-**Loners move the way real tables move** -- 1.7% to 10%. Some of that is honest
-optimism about hands that might run. Some is mechanical: averaging over sampled
-worlds destroys the exact ties that made the God Mode auction decline a loner
-worth no more than the same call four-handed.
+Measured profiles of a PIMC sim table against God Mode -- the pass-model
+comparison, the head-to-head margins, the loner and euchre rates, and why the
+euchre rate is not a strength metric -- are in **`notes/pimc_measurements.md`**.
+Read it before quoting any of those numbers: they were taken at 20 play / 10 bid
+samples, which is no longer what the tools default to, and have not been redone.
 
 ### The EV of one hand
 
@@ -1192,141 +1045,44 @@ name stays as the eldest-seat case.
 
 ## The local server
 
+`server.py` serves `api.py` over the standard library, and `static/index.html`
+is the page -- one file, no bundler, styled as Windows XP Solitaire with XP's
+own cards. How it works, the four things about it that are deliberate, and the
+`cards.dll` build step are in the **`euchre-server` skill**
+(`.claude/skills/euchre-server/SKILL.md`). Read it before touching the server,
+the endpoints, the page or the card artwork.
+
 ```bash
 python server.py --workers 10          # http://127.0.0.1:8000
-python server.py --port 9000 --deals 2000
 ```
 
-Standard library only -- `ThreadingHTTPServer`, no Flask, no bundler, and
-`static/index.html` is one file of vanilla HTML, CSS and JS. The repo's
-dependencies are still numpy, numba and jupyter.
-
-The page is styled as Windows XP Solitaire, and the cards are XP's own. They
-come from `cards.dll` -- the card library Windows shipped from 3.0 to XP --
-whose 52 faces are `RT_BITMAP` resources at 71x96. `build_cards.py` reads the
-24 a Euchre deck uses and writes `static/cards.png`, one sprite sheet, a row
-per suit and a column per rank in the page's own `SUITS` / `RANKS` order:
+The same page ships as a standalone Windows app -- its own window over Edge
+WebView2, no browser -- built with PyInstaller (`pip install pyinstaller
+pywebview`). The build bundles `static/cards.png`, so run `build_cards.py`
+first:
 
 ```bash
-python build_cards.py cards.dll     # -> static/cards.png, 426x384
+python app.py                          # the window, from source
+pyinstaller app.spec --distpath .      # -> ./EuchreCalculator.exe, ~65 MB
 ```
 
-Three things about it are worth knowing.
+The exe is committed at the repo root so a clone runs without Python. Every
+rebuild committed adds ~65 MB to history for good, so rebuild deliberately.
 
-- **Both files are gitignored, and the page runs without them.** `cards.dll`
-  is Microsoft's and not ours to redistribute, so it is a build step rather
-  than a checked-in asset. `.pc` draws its own card -- rank over suit in two
-  corners, a pip in the middle -- and the page asks for the sheet once on
-  load, adding `real-cards` to the body only if it answers. Everything below
-  that swap is identical, since the drawn card is the same 71x96 box.
-- **Those bitmaps are older than Win32.** They carry a 12-byte
-  `BITMAPCOREHEADER` -- 16-bit dimensions, 3-byte palette entries -- not the
-  40-byte `BITMAPINFOHEADER`, and an `RT_BITMAP` resource has no
-  `BITMAPFILEHEADER` at all. `build_cards.py` handles both.
-- **The corners are cut to transparent.** Solitaire draws a card's rounded
-  corners as table, so they are flood-filled from each corner over white
-  pixels only. The outline is a closed loop in the card's own colour, which is
-  why a fixed corner block would not do. XP draws that loop red on the red
-  *pip* cards and black on the faces, so `blacken_outline` recolours it to
-  black afterwards -- otherwise a hand shows red borders on 9H TH AH 9D TD AD
-  and black ones on the other eighteen. Recolouring the sheet rather than
-  adding a CSS border keeps every card exactly 71x96.
-
-    GET  /                  the page
-    GET  /api/health        {"ready", "busy", "workers", ...}
-    POST /api/evaluate      {"hand", "up_card", "seat", "dealer", "deals", ...}
-    POST /api/solve         {"hands": [4], "up_card", "dealer", "seat"}
-
-Both replies are `as_dict()` straight off the `api` result, so the server does
-no arithmetic and the page does none either.
-
-Four things about it are deliberate:
-
-- **It binds to localhost.** No authentication, no rate limiting, no real size
-  cap. `--host` exists so exposing it is a decision rather than an accident.
-- **It warms up before it serves.** `api.Engine.warm()` runs in a background
-  thread at boot; until it returns, `/api/health` says `ready: false` and the
-  query endpoints answer 503 rather than hanging. That matters because a cold
-  numba cache is ~80 s, not the ~25 s a warm one takes, and a user staring at
-  a frozen page cannot tell the difference from a crash.
-- **It serialises queries.** `Engine` holds a lock: one query already uses
-  every thread it is given, and two at once oversubscribe numba's pool and
-  make both slower. `ThreadingHTTPServer` is still right, because it lets
-  `/api/health` answer *while* a query runs -- which is what lets the page say
-  "busy" instead of appearing dead.
-- **Every refusal closes the connection.** This is HTTP/1.1, so a connection
-  is reused by default, and a request whose body was never read leaves bytes
-  in the socket that the next request gets parsed out of. Rejecting without
-  draining is the normal case here (a body too large to want, a query before
-  the engine is warm), so `_fail` sends `Connection: close`. This was a real
-  bug, found by `tests/test_server.py` and not by hand-testing with curl.
-
-`api.Engine` is what a long-lived process should hold: one transposition table
-for the life of the process instead of one allocated per call, and since the
-table is never cleared the queries warm each other. It takes no deal count --
-see the sizing note above, which is where `Engine(deals=...)` went. **The first query of a
-process costs two to three times the ones after it** -- 10.4 s against 4.7 s
-for three actions over 1,000 deals -- which is why `api` carries two rates,
-`SECONDS_PER_DEAL` and `SECONDS_PER_DEAL_FIRST`, and `Engine.status` reports
-how many queries have run so the page can quote the right one.
-
-That same warming is a trap when measuring: runs get faster through a session,
-and a careless A/B reads "no progress" as slower than "with progress". Warm a
-fresh table before timing anything, and compare like with like.
-
-`Engine.status` also carries live progress -- the fraction done and which
-action is being priced -- which works without job ids precisely because
-queries are serialised: there is only ever one to report on. Reporting it
-means the sweep runs in blocks with a barrier at each one, so
-`hand_ev.DEALS_PER_CHUNK_PER_BLOCK` sets how much work a chunk must have
-inside a block to be worth the barrier. Without that floor a small sweep
-collapses: 1,000 deals took 13.5 s against 5.6 s, because 20 blocks over 40
-chunks is barely one deal per chunk before every thread stops to wait.
-
-`tests/test_server.py` runs mostly against a stub engine, so the suite does not
-pay for numba to load; one class at the end uses the real one at eight deals to
-check the wiring. What it tests is what goes wrong between a browser and a
-function call -- that `api`'s own error messages reach the caller verbatim
-(the page prints them), that a query before warm-up is a 503 rather than a
-hang, that `/static/..` cannot walk out of `static/`, and that a refusal does
-not poison the next request on the same connection.
+The exe copies its sources to `%LOCALAPPDATA%\EuchreCalculator\engine-<hash>`
+on first launch and imports from there, because a one-file exe unpacks to a new
+temp folder each run and numba's cache is keyed on the source path. Measured:
+first launch on a machine ~180 s to ready (compiling), every launch after ~38 s.
+Logs go to `%LOCALAPPDATA%\EuchreCalculatorpp.log`, since the exe has no
+console.
 
 ## Archived approaches
 
-`archive/beta_approach/` holds the previous solver: `tree_search.py`,
-`n_play_round.py`, `n_branches.py`. They import each other by bare name, so to
-run them put that directory on the path rather than treating it as a package:
-
-```python
-import sys; sys.path.insert(0, "archive/beta_approach")
-from tree_search import definitive_winner
-```
-
-**It disagrees with `fast_search` on roughly 20% of hands, in both directions,**
-because it does not compute a minimax value. It scores a move by the **mean**
-outcome over branches surviving its heuristic filters, then prunes players
-greedily one at a time. On `test_hand.txt` it returns 1 where the true value is
-2 -- the calling team can force all five tricks. Treat its numbers as historical.
-
-How it worked, briefly: `n_play_round` built the full Cartesian product of every
-player's remaining cards (`n**4` rows) and narrowed it with a filter chain --
-`n_ap_filter` to pin the opener, then for each responder in seating order
-`nfb_by_hand` (follow suit), `common_sense`, `smart_loss`, `trump_or_dump`. Only
-the first is a legality rule; the other three are strategy heuristics, and
-mixing them into the same chain is precisely why legal-but-optimal plays got
-discarded. `tree_search` then expanded that tree once per candidate opening card
-and again once per responder prune, for each of 5 tricks -- roughly 40
-expansions of the same tree per hand.
-
-Two hazards if you ever edit it: `next_round` writes each trick's winner at
-column `game_round - 1` of an always-5-wide score array, so short simulations
-need padded score arrays and shifted `game_round` values -- hand-unrolled and
-duplicated across `n_trick_sim`, `player_best_prune`, and `definitive_winner`
-with different offsets in each. And buffers are worst-case preallocated
-(`round1` 625 branches, `next_round` `len(leads) * 4**4`), which is what drove
-the ~533 MB resident footprint.
-
-`archive/legacy_approach/` is older still, superseded by both. Do not extend it.
+`archive/` holds two superseded solvers. **Its numbers are historical and
+disagree with `fast_search` on roughly 20% of hands** -- the older approach
+scores a move by the mean outcome over heuristically filtered branches rather
+than computing a minimax value. Do not extend either one. `archive/CLAUDE.md`
+has the detail and loads automatically when working in that directory.
 
 ### Rotating a called suit into the canonical frame
 
