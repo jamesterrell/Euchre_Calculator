@@ -9,7 +9,8 @@ Three endpoints and a page:
 
     GET  /                  the page
     GET  /api/health        {"ready": bool, "busy": bool, ...}
-    POST /api/evaluate      {"hand", "up_card", "seat", "dealer", "deals", ...}
+    POST /api/evaluate      {"hand", "up_card", "seat", "dealer", "deals",
+                             "round": 1 or 2, "actions", ...}
     POST /api/solve         {"hands": [4], "up_card", "dealer", "seat"}
 
 Both POST bodies are JSON and both replies are `as_dict()` straight off the
@@ -189,6 +190,10 @@ class Handler(BaseHTTPRequestHandler):
             kw["actions"] = tuple(body["actions"])
         if body.get("seed") is not None:
             kw["seed"] = int(body["seed"])
+        if body.get("round") is not None:
+            kw["bidding_round"] = int(body["round"])
+        if body.get("min_reached") is not None:
+            kw["min_reached"] = int(body["min_reached"])
         got = self.server.engine.evaluate(
             body.get("hand", ""), body.get("up_card", ""),
             seat=int(body.get("seat", 0)), dealer=int(body.get("dealer", 3)),

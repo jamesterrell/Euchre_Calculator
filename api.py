@@ -77,6 +77,14 @@ _ASSUME = {ORDER: hand_ev.ASSUME_ORDER,
 
 DEALS = 1000
 
+# Round two: the up-card has gone round and been turned down. Its actions are
+# named by suit -- "hearts", "hearts alone" -- plus "pass", which there means
+# passing a second time. `round_two_actions` lists the ones open for a given
+# up-card, since the turned-down suit cannot be named.
+ROUND_ONE = 1
+ROUND_TWO = 2
+ALONE_SUFFIX = " alone"
+
 # Roughly what one deal costs across all three actions, on ten threads. Only
 # ever used to quote a wait before a query runs; the cost is near enough linear
 # in `deals` for that to be possible at all.
@@ -110,6 +118,57 @@ def _cards(hand) -> Tuple[r.Card, ...]:
 
 def _card(card) -> r.Card:
     return r.parse_card(card) if isinstance(card, str) else card
+
+
+def round_two_actions(up_card, allow_loners: bool = True) -> Tuple[str, ...]:
+    """
+    Every round-two action open once `up_card` has been turned down.
+
+    Each suit but the up-card's, in the page's suit order (spades, hearts,
+    diamonds, clubs), alone after the plain call; then "pass".
+    """
+    turned = _card(up_card).suit
+    out = []
+    for suit in (r.SPADES, r.HEARTS, r.DIAMONDS, r.CLUBS):
+        if suit == turned:
+            continue
+        out.append(r.suit_name(suit))
+        if allow_loners:
+            out.append(r.suit_name(suit) + ALONE_SUFFIX)
+    return tuple(out) + (PASS,)
+
+
+def _round_two_pin(action: str, up_card: r.Card):
+    """A round-two action name as `(hand_ev assumption, suit or None)`."""
+    if action == PASS:
+        return hand_ev.ASSUME_PASS_TWICE, None
+    alone = action.endswith(ALONE_SUFFIX)
+    name = action[:-len(ALONE_SUFFIX)] if alone else action
+    suits = [s for s in range(4) if r.suit_name(s) == name]
+    if not suits:
+        raise ValueError("no such round-two action: %r" % (action,))
+    if suits[0] == up_card.suit:
+        raise ValueError("%s was turned down, so it cannot be named in round "
+                         "two" % name)
+    return (hand_ev.ASSUME_NAME_ALONE if alone else hand_ev.ASSUME_NAME,
+            suits[0])
+
+
+# In round two the first action finds which deals come back round, dealing
+# every one of them; the rest replay only those. So the first one is most of
+# the wait, and a progress bar that gave it an even share would sit at 14%
+# for most of the query and then race.
+FIRST_ACTION_SHARE = 0.75
+
+
+def _share(index: int, within: float, actions: int, bidding_round: int):
+    """How far through a whole query one action's progress puts it."""
+    if bidding_round != ROUND_TWO or actions < 2:
+        return (index + within) / actions
+    if index == 0:
+        return FIRST_ACTION_SHARE * within
+    rest = (1 - FIRST_ACTION_SHARE) / (actions - 1)
+    return FIRST_ACTION_SHARE + rest * (index - 1 + within)
 
 
 def _check_seat(name: str, value: int):
@@ -155,6 +214,12 @@ class Evaluation:
     dealer: int
     deals: int
     actions: Tuple[ActionEV, ...]
+    # 1: the up-card is up. 2: everybody passed it, it was turned down, and
+    # each action is priced over the deals where the bidding came back.
+    bidding_round: int = ROUND_ONE
+    # The threshold asked for, if any. `deals` is then however many it took,
+    # and `reached` can fall short of it only if `max_deals` ran out first.
+    min_reached: Optional[int] = None
 
     def __getitem__(self, action: str) -> ActionEV:
         for got in self.actions:
@@ -178,6 +243,8 @@ class Evaluation:
         return {"hand": [r.card_name(c) for c in self.hand],
                 "up_card": r.card_name(self.up_card),
                 "seat": self.seat, "dealer": self.dealer, "deals": self.deals,
+                "round": self.bidding_round,
+                "min_reached": self.min_reached,
                 "actions": [a.as_dict() for a in self.actions]}
 
 
@@ -275,7 +342,10 @@ def _summarise(action: str, records, seat: int) -> ActionEV:
 
 
 def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
-             deals: int = DEALS, actions: Sequence[str] = ACTIONS,
+             deals: int = DEALS, actions: Optional[Sequence[str]] = None,
+             bidding_round: int = ROUND_ONE,
+             min_reached: Optional[int] = None,
+             max_deals: int = hand_ev.MAX_DEALS,
              play_sims: Optional[int] = None, bid_sims: Optional[int] = None,
              discard_sims: Optional[int] = None,
              pass_model: str = players.PASS_ZERO,
@@ -297,7 +367,22 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
         deals: layouts to play out per action. The error bar is roughly
             `4 / sqrt(deals)`; the whole query costs about `deals * 0.0057`
             seconds for all three actions.
-        actions: which of "order", "order alone", "pass" to price.
+        actions: which actions to price. Round one: "order", "order alone",
+            "pass" -- all three by default. Round two: suit names, alone or
+            not, and "pass" -- `round_two_actions(up_card)` by default.
+        bidding_round: 1 prices the opening bid on the up-card. 2 prices the
+            seat's round-two bid: it passes the up-card, the other seats bid
+            for themselves, and each action's mean is over the deals where
+            every seat turned the up-card down and the bidding came back to
+            this one. The rest are not played. Expect far fewer of those than
+            `deals` -- the reach rate is reported, and is the thing to watch.
+        min_reached: keep dealing past `deals` until at least this many deals
+            have reached the seat, up to `max_deals`. `deals` is then only
+            the first batch. Which deals reach the seat does not depend on
+            the action -- everything before the seat's bid is the same
+            auction -- so the first action finds the deal count and every
+            other action is played over exactly those deals. The comparison
+            stays paired, and every action reports the same `reached`.
         play_sims, bid_sims, discard_sims: layouts each player imagines per
             decision. See the module docstring -- these move the mean rather
             than narrowing it, and the measured defaults are hard to beat.
@@ -329,16 +414,39 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
                          % r.card_name(up_card))
     if deals < 1:
         raise ValueError("deals must be at least 1, got %r" % (deals,))
-    for name in actions:
-        if name not in _ASSUME:
-            raise ValueError("no such action: %r" % (name,))
+    if min_reached is not None and min_reached < 1:
+        raise ValueError("min_reached must be at least 1, got %r"
+                         % (min_reached,))
+    if bidding_round == ROUND_ONE:
+        if actions is None:
+            actions = ACTIONS
+        pins = []
+        for name in actions:
+            if name not in _ASSUME:
+                raise ValueError("no such action: %r" % (name,))
+            pins.append((_ASSUME[name], None))
+    elif bidding_round == ROUND_TWO:
+        if actions is None:
+            actions = round_two_actions(up_card, allow_loners)
+        pins = [_round_two_pin(name, up_card) for name in actions]
+        if not allow_loners and any(a == hand_ev.ASSUME_NAME_ALONE
+                                    for a, _ in pins):
+            raise ValueError("cannot name a suit alone with loners off")
+    else:
+        raise ValueError("bidding_round must be 1 or 2, got %r"
+                         % (bidding_round,))
 
     out = []
-    for index, name in enumerate(actions):
+    # Round two: the deal numbers the first action found came back round.
+    # Every later action is played over those alone, and the rest are filled
+    # in as unreached -- they would be anyway, and identically.
+    came_back = None
+    for index, (name, (assume, suit)) in enumerate(zip(actions, pins)):
         note = None
         if on_progress is not None:
             def note(done, total, index=index, name=name):
-                on_progress((index + done / total) / len(actions), name)
+                on_progress(_share(index, done / total, len(actions),
+                                   bidding_round), name)
         setup = hand_ev.Setup(
             hand=hand, up_card=up_card, seat=seat, dealer=dealer,
             player_eval_sims=hand_ev._budget(play_sims, None,
@@ -348,15 +456,35 @@ def evaluate(hand, up_card, seat: int = 0, dealer: int = 3,
             discard_eval_sims=hand_ev._budget(discard_sims, play_sims,
                                               hand_ev.DISCARD_EVAL_SIMS),
             pass_model=pass_model, allow_loners=allow_loners, stick=stick,
-            seed=seed, epsilon=epsilon, assume=_ASSUME[name],
+            seed=seed, epsilon=epsilon, assume=assume, suit=suit,
             let_auction_play=True)
-        records, _, _ = hand_ev.run_fast(setup, deals, workers=workers,
-                                         tt_bits=tt_bits, table=table,
-                                         progress=note)
+        if came_back is not None:
+            got, _ = hand_ev.run_fast_listed(setup, came_back,
+                                             workers=workers, tt_bits=tt_bits,
+                                             table=table, progress=note)
+            records = [hand_ev.NOT_REACHED] * deals
+            for i, rec in zip(came_back, got):
+                records[i] = rec
+        elif min_reached is not None and index == 0:
+            # Fix the deal count on the first action. `note` takes a
+            # (done, total) pair, so the fraction goes in as done/1.
+            records, _ = hand_ev.run_fast_until(
+                setup, min_reached, deals, workers=workers, tt_bits=tt_bits,
+                table=table, max_deals=max_deals,
+                progress=None if note is None
+                else (lambda f, note=note: note(f, 1.0)))
+            deals = len(records)
+        else:
+            records, _, _ = hand_ev.run_fast(setup, deals, workers=workers,
+                                             tt_bits=tt_bits, table=table,
+                                             progress=note)
         out.append(_summarise(name, records, seat))
+        if bidding_round == ROUND_TWO and came_back is None:
+            came_back = [i for i, rec in enumerate(records) if rec.forced]
 
     return Evaluation(hand=hand, up_card=up_card, seat=seat, dealer=dealer,
-                      deals=deals, actions=tuple(out))
+                      deals=deals, actions=tuple(out),
+                      bidding_round=bidding_round, min_reached=min_reached)
 
 
 # ------------------------------------------------------------------ solve

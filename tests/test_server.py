@@ -231,6 +231,15 @@ class TestTranslation(ServerCase):
                               "discard_sims": 10, "seed": 5,
                               "actions": ("order", "pass")})
 
+    def test_evaluate_passes_the_round_through(self):
+        self.engine.calls.clear()
+        self.post("/api/evaluate", {
+            "hand": "TH AS AD KD JD", "up_card": "9H", "round": 2,
+            "actions": ["spades", "pass"]})
+        kw = self.engine.calls[-1][-1]
+        self.assertEqual(kw, {"bidding_round": 2,
+                              "actions": ("spades", "pass")})
+
     def test_solve_needs_a_list_of_hands(self):
         status, got = self.post("/api/solve", {"hands": "not a list",
                                                "up_card": "9H"})

@@ -254,6 +254,93 @@ class TestEvaluate(unittest.TestCase):
         self.assertLess(big.interval, small.interval)
 
 
+class TestRoundTwo(unittest.TestCase):
+    """The up-card turned down: what each suit is worth when it comes back."""
+
+    def _one(self, **kw):
+        kw.setdefault("deals", 120)
+        kw.setdefault("play_sims", SIMS)
+        return api.evaluate("TH AS AD KD JD", "9C", seat=2, dealer=0,
+                            bidding_round=api.ROUND_TWO, **kw)
+
+    def test_the_turned_down_suit_is_not_on_offer(self):
+        self.assertEqual(api.round_two_actions("9C"),
+                         ("spades", "spades alone", "hearts", "hearts alone",
+                          "diamonds", "diamonds alone", api.PASS))
+        self.assertEqual(api.round_two_actions("9C", allow_loners=False),
+                         ("spades", "hearts", "diamonds", api.PASS))
+
+    def test_every_action_sees_the_same_deals(self):
+        got = self._one(actions=("diamonds", "hearts alone", api.PASS))
+        self.assertEqual(got.bidding_round, api.ROUND_TWO)
+        reached = {a.reached for a in got.actions}
+        self.assertEqual(len(reached), 1, "actions saw different deals")
+        self.assertGreater(reached.pop(), 0)
+
+    def test_a_named_suit_is_always_the_seats_contract(self):
+        """
+        On every counted deal the seat named the suit, so its team holds the
+        contract and the trick breakdown fixes the mean exactly.
+        """
+        got = self._one(actions=("diamonds", "diamonds alone"))
+        for cell, march in ((got["diamonds"], 2), (got["diamonds alone"], 4)):
+            self.assertLess(cell.reached, cell.deals)
+            self.assertEqual(cell.roles, {"you called": cell.reached})
+            self.assertEqual(cell.tricks["contracts"], cell.reached)
+            total = (cell.tricks["march"] * march + cell.tricks["made"]
+                     - 2 * cell.tricks["euchred"])
+            self.assertAlmostEqual(cell.ev, total / cell.reached, places=9)
+
+    def test_passing_again_never_makes_the_seat_the_caller(self):
+        cell = self._one(actions=(api.PASS,))[api.PASS]
+        self.assertNotIn("you called", cell.roles)
+        self.assertEqual(sum(cell.roles.values()), cell.reached)
+
+    def test_a_threshold_keeps_dealing_until_it_is_met(self):
+        got = self._one(actions=("diamonds", api.PASS), deals=20,
+                        min_reached=30)
+        self.assertGreater(got.deals, 20)
+        self.assertEqual(got.min_reached, 30)
+        for cell in got.actions:
+            self.assertGreaterEqual(cell.reached, 30)
+            self.assertEqual(cell.deals, got.deals)
+        # One batch is the same sweep as many: the first N deals either way.
+        flat = self._one(actions=("diamonds",), deals=got.deals)["diamonds"]
+        self.assertEqual(flat, got["diamonds"])
+
+    def test_later_actions_replay_only_the_deals_that_came_back(self):
+        """
+        After the first action, round two plays only the deals that came
+        back -- `hand_ev.run_fast_listed`. Priced second, an action must
+        come out exactly as it does priced first over the whole sweep.
+        """
+        first = self._one(actions=("diamonds",))["diamonds"]
+        second = self._one(actions=(api.PASS, "diamonds"))["diamonds"]
+        self.assertEqual(first, second)
+
+    def test_a_threshold_stops_at_the_cap(self):
+        got = self._one(actions=("spades",), deals=8, min_reached=10 ** 6,
+                        max_deals=50)
+        self.assertEqual(got.deals, 50)
+        self.assertLess(got["spades"].reached, 10 ** 6)
+
+    def test_it_serialises_with_its_round(self):
+        got = self._one(actions=("spades",), deals=20).as_dict()
+        self.assertEqual(got["round"], 2)
+        self.assertEqual(json.loads(json.dumps(got)), got)
+
+    def test_it_rejects_what_round_two_cannot_do(self):
+        for kw, why in ((dict(actions=("clubs",)), "the turned-down suit"),
+                        (dict(actions=("order",)), "a round-one action"),
+                        (dict(actions=("hearts alone",), allow_loners=False),
+                         "a loner with loners off"),
+                        (dict(bidding_round=3), "no third round")):
+            with self.subTest(why=why), self.assertRaises(ValueError):
+                kw.setdefault("bidding_round", api.ROUND_TWO)
+                api.evaluate("TH AS AD KD JD", "9C", seat=2, dealer=0,
+                             deals=4, play_sims=SIMS, **kw)
+
+
 class TestValidation(unittest.TestCase):
     """What a web layer will send on its first day."""
 

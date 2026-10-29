@@ -124,6 +124,13 @@ ASSUME_AUCTION = 0
 ASSUME_ORDER = 1
 ASSUME_ALONE = 2
 ASSUME_PASS = 3
+# Round two: the seat passes the up-card, and *if every seat passes it and the
+# auction comes back round to it*, names `assume_suit` (alone, or not), or
+# passes again. Deals the auction never brings back are not played at all --
+# they are not part of the question, and they are most of the cost.
+ASSUME_NAME = 4
+ASSUME_NAME_ALONE = 5
+ASSUME_PASS_TWICE = 6
 
 MIN_WORLDS = 24
 Z = 2.576
@@ -1293,8 +1300,8 @@ COUNTERS = 8
 def play_one_deal(pin_hand, pin_seat, pin_up, dealer,
                   budget_play, budget_bid, budget_discard,
                   epsilon, racing, min_worlds,
-                  pass_model, assume, let_auction_play, stick, loners,
-                  rngs, tt, ttm, nodes, stk, out, row):
+                  pass_model, assume, assume_suit, let_auction_play, stick,
+                  loners, rngs, tt, ttm, nodes, stk, out, row):
     """
     One sampled layout, played out by four PIMC sim players.
 
@@ -1340,7 +1347,23 @@ def play_one_deal(pin_hand, pin_seat, pin_up, dealer,
                 suit = -1
                 al = 0
                 pinned = False
-                if (assume != ASSUME_AUCTION and let_auction_play == 1
+                if assume >= ASSUME_NAME and seat == pin_seat:
+                    # Round one is always a pass -- the question is what the
+                    # hand is worth once the up-card has gone round. Round two
+                    # is pinned, and reaching it is what `forced` records.
+                    if bidding_round == 1:
+                        pinned = True
+                    elif assume == ASSUME_PASS_TWICE:
+                        if not (stick == 1 and index == PLAYERS - 1):
+                            pinned = True
+                            forced = 1
+                    else:
+                        pinned = True
+                        act = NAME
+                        suit = assume_suit
+                        al = 1 if assume == ASSUME_NAME_ALONE else 0
+                        forced = 1
+                elif (assume != ASSUME_AUCTION and let_auction_play == 1
                         and seat == pin_seat and not spoken):
                     # Only the opening bid is pinned, and only if it is on
                     # offer -- `players.ForcedOpeningBid`.
@@ -1379,6 +1402,18 @@ def play_one_deal(pin_hand, pin_seat, pin_up, dealer,
                 break
             if done:
                 break
+        if assume >= ASSUME_NAME and forced == 0:
+            # Somebody called before the auction came back to this seat, so
+            # the deal is outside the question. Recorded, not played: a trick
+            # count of -1 says so.
+            out[row, R_VALUE] = 0
+            out[row, R_CALLER] = caller if done else -1
+            out[row, R_TRUMP] = trump if done else -1
+            out[row, R_ALONE] = alone if done else 0
+            out[row, R_TRICKS] = -1
+            out[row, R_SCORE] = 0
+            out[row, R_FORCED] = 0
+            return
         if not done:
             out[row, R_VALUE] = 0
             out[row, R_CALLER] = -1
@@ -1541,8 +1576,8 @@ def solve_bidding(hands, up_card, dealer, stick, loners,
 def run_deals(lo, hi, seed, pin_hand, pin_seat, pin_up, dealer,
               budget_play, budget_bid, budget_discard,
               epsilon, racing, min_worlds,
-              pass_model, assume, let_auction_play, stick, loners,
-              chunks, tt, out, god_out, want_god, counters):
+              pass_model, assume, assume_suit, let_auction_play, stick,
+              loners, chunks, tt, out, god_out, want_god, counters):
     """
     Deals `lo` up to `hi` of the sweep, spread over `chunks` threads.
 
@@ -1580,8 +1615,8 @@ def run_deals(lo, hi, seed, pin_hand, pin_seat, pin_up, dealer,
             play_one_deal(pin_hand, pin_seat, pin_up, dealer,
                           budget_play, budget_bid, budget_discard,
                           epsilon, racing, min_worlds,
-                          pass_model, assume, let_auction_play, stick, loners,
-                          rngs, tt, mask, nodes, stk, out, i)
+                          pass_model, assume, assume_suit, let_auction_play,
+                          stick, loners, rngs, tt, mask, nodes, stk, out, i)
             if want_god == 1:
                 # The same layout in God Mode. Dealt again from the same
                 # stream, since the deal is a function of its index alone.
@@ -1593,4 +1628,41 @@ def run_deals(lo, hi, seed, pin_hand, pin_seat, pin_up, dealer,
         for z in range(COUNTERS):
             # Added to, not assigned: a progress line splits the sweep into
             # blocks, and each block is another call into here.
+            counters[c, z] += nodes[z]
+
+
+@njit(parallel=True, cache=True)
+def run_listed(indices, seed, pin_hand, pin_seat, pin_up, dealer,
+               budget_play, budget_bid, budget_discard,
+               epsilon, racing, min_worlds,
+               pass_model, assume, assume_suit, let_auction_play, stick,
+               loners, chunks, tt, out, counters):
+    """
+    `run_deals` over a list of deal numbers instead of a range.
+
+    Row `j` of `out` is deal `indices[j]`, played exactly as `run_deals`
+    would play it -- same streams, seeded from the deal number. This is what
+    lets a round-two sweep price its second and later actions over only the
+    deals that came back round, which is all of them that count: which deals
+    those are is fixed by the auction before the seat's bid, and so is the
+    same for every action.
+    """
+    mask = np.int64(len(tt) - 1)
+    n = len(indices)
+    for c in prange(chunks):
+        nodes = np.zeros(8, dtype=np.int64)
+        stk = np.zeros((bitcore.STACK_PLIES, bitcore.STACK_FIELDS),
+                       dtype=np.int64)
+        rngs = np.zeros((PLAYERS + 1, 1), dtype=np.int64)
+        for j in range(c, n, chunks):
+            i = indices[j]
+            seed_stream(rngs[PLAYERS], seed + i)
+            for s in range(PLAYERS):
+                seed_stream(rngs[s], seed * 7919 + i * 4 + s)
+            play_one_deal(pin_hand, pin_seat, pin_up, dealer,
+                          budget_play, budget_bid, budget_discard,
+                          epsilon, racing, min_worlds,
+                          pass_model, assume, assume_suit, let_auction_play,
+                          stick, loners, rngs, tt, mask, nodes, stk, out, j)
+        for z in range(COUNTERS):
             counters[c, z] += nodes[z]
