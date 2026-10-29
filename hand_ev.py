@@ -202,7 +202,17 @@ ASSUME_AUCTION = "auction"
 ASSUME_ORDER = "order"
 ASSUME_ALONE = "order-alone"
 ASSUME_PASS = "pass"
-ASSUMPTIONS = (ASSUME_AUCTION, ASSUME_ORDER, ASSUME_ALONE, ASSUME_PASS)
+# Round two. The seat passes the up-card, and on the deals where every seat
+# passes it and the auction comes back round, names `Setup.suit` -- alone, or
+# not -- or passes again. Only those deals are the question; the rest are
+# recorded as not reached and, on the compiled engine, not played.
+ASSUME_NAME = "name"
+ASSUME_NAME_ALONE = "name-alone"
+ASSUME_PASS_TWICE = "pass-twice"
+ROUND_ONE_ASSUMPTIONS = (ASSUME_ORDER, ASSUME_ALONE, ASSUME_PASS)
+ROUND_TWO_ASSUMPTIONS = (ASSUME_NAME, ASSUME_NAME_ALONE, ASSUME_PASS_TWICE)
+ASSUMPTIONS = ((ASSUME_AUCTION,) + ROUND_ONE_ASSUMPTIONS
+               + ROUND_TWO_ASSUMPTIONS)
 
 # Defaults per decision kind, set to the measured mean number of sampled worlds
 # each needs before its argmax stops moving -- 40,390 decisions, see
@@ -264,6 +274,13 @@ class Setup:
     # `run_fast`. "python" is the readable one and the one the unit suite
     # drives; "fast" is the compiled one, and is ~200x quicker.
     engine: str = "fast"
+    # The suit named under ASSUME_NAME / ASSUME_NAME_ALONE, as a natural suit
+    # index. Never the up-card's suit, which round two forbids.
+    suit: Optional[int] = None
+
+    @property
+    def round_two(self) -> bool:
+        return self.assume in ROUND_TWO_ASSUMPTIONS
 
     def deal(self, i: int) -> game.Deal:
         """Deal `i` of the sweep. Derived from `i` alone, so workers agree."""
@@ -282,7 +299,12 @@ class Setup:
                                     prune_discards=self.prune_discards,
                                     rng=random.Random(self.seed * 7919 + i * 4 + s))
                  for s in range(game.PLAYERS)]
-        if self.assume != ASSUME_AUCTION and self.let_auction_play:
+        if self.round_two:
+            table[self.seat] = players.ForcedRoundTwoBid(
+                table[self.seat],
+                t.PASS if self.assume == ASSUME_PASS_TWICE else t.NAME,
+                suit=self.suit, alone=(self.assume == ASSUME_NAME_ALONE))
+        elif self.assume != ASSUME_AUCTION and self.let_auction_play:
             action = t.PASS if self.assume == ASSUME_PASS else t.ORDER
             table[self.seat] = players.ForcedOpeningBid(
                 table[self.seat], action,
@@ -312,6 +334,8 @@ class Record:
 
 
 PASSED_OUT = Record(0, -1, -1, False, 0, 0)
+# A deal the pinned bid never reached, and so was not played.
+NOT_REACHED = Record(0, -1, -1, False, -1, 0, forced=False)
 
 
 def role_of(caller: int, seat: int) -> str:
@@ -343,7 +367,8 @@ def role_label(role: str, setup: "Setup") -> str:
     auction that ends before reaching the seat ends without the seat calling
     at all. So every call it makes under this assumption is a round-two call.
     """
-    if role == "you called" and setup.assume == ASSUME_PASS:
+    if role == "you called" and (setup.assume == ASSUME_PASS
+                                 or setup.round_two):
         return "you called (round two)"
     return role
 
@@ -595,7 +620,10 @@ def codes(fastsim):
             {ASSUME_AUCTION: fastsim.ASSUME_AUCTION,
              ASSUME_ORDER: fastsim.ASSUME_ORDER,
              ASSUME_ALONE: fastsim.ASSUME_ALONE,
-             ASSUME_PASS: fastsim.ASSUME_PASS})
+             ASSUME_PASS: fastsim.ASSUME_PASS,
+             ASSUME_NAME: fastsim.ASSUME_NAME,
+             ASSUME_NAME_ALONE: fastsim.ASSUME_NAME_ALONE,
+             ASSUME_PASS_TWICE: fastsim.ASSUME_PASS_TWICE})
 
 
 def _from_row(row, setup: Setup, god: bool) -> Record:
@@ -637,7 +665,8 @@ def new_table(bits: Optional[int] = None):
 
 
 def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
-             progress=None, tt_bits: Optional[int] = None, table=None):
+             progress=None, tt_bits: Optional[int] = None, table=None,
+             start: int = 0):
     """
     The sweep, compiled. Same arguments and same answers as `run`.
 
@@ -661,6 +690,10 @@ def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
     `prune_discards` is not supported: it is an unproven axiom, it buys 1.09x,
     and this engine is already three orders of magnitude past what it was
     worth. Ask for it and you get the Python path.
+
+    `start` plays deals `start .. start + deals - 1` instead of from zero, so
+    a sweep can be extended without replaying -- or reseeding -- what it has
+    already played. Deal `i` is the same deal whichever call plays it.
     """
     import numpy as np
     import numba
@@ -681,8 +714,11 @@ def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
 
     pass_models, assumptions = codes(fastsim)
     tt = table if table is not None else new_table(tt_bits)
-    out = np.zeros((deals, fastsim.RECORD), dtype=np.int64)
-    god = np.zeros((deals if both else 1, fastsim.RECORD), dtype=np.int64)
+    # Rows are indexed by deal number, so the array covers everything below
+    # `start` too. Seven int64s a deal; not worth an offset through the njit.
+    end = start + deals
+    out = np.zeros((end, fastsim.RECORD), dtype=np.int64)
+    god = np.zeros((end if both else 1, fastsim.RECORD), dtype=np.int64)
     counters = np.zeros((chunks, fastsim.COUNTERS), dtype=np.int64)
 
     # Run in blocks so a progress line has something to say -- the table
@@ -692,8 +728,8 @@ def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
     # keep every thread busy inside them.
     block = deals if progress is None else max(
         chunks * DEALS_PER_CHUNK_PER_BLOCK, -(-deals // PROGRESS_BLOCKS))
-    for lo in range(0, deals, block):
-        hi = min(lo + block, deals)
+    for lo in range(start, end, block):
+        hi = min(lo + block, end)
         fastsim.run_deals(
             lo, hi, setup.seed, pin, setup.seat, up, setup.dealer,
             setup.player_eval_sims, setup.bid_eval_sims,
@@ -701,16 +737,135 @@ def run_fast(setup: Setup, deals: int, both: bool = False, workers: int = 1,
             0.0 if setup.epsilon is None else float(setup.epsilon),
             setup.epsilon is not None, players.MIN_WORLDS,
             pass_models[setup.pass_model], assumptions[setup.assume],
+            -1 if setup.suit is None else int(setup.suit),
             1 if setup.let_auction_play else 0,
             1 if setup.stick else 0, 1 if setup.allow_loners else 0,
             chunks, tt, out, god, 1 if both else 0, counters)
         if progress:
-            progress(hi, deals)
+            progress(hi - start, deals)
 
-    return ([_from_row(out[i], setup, False) for i in range(deals)],
-            [_from_row(god[i], setup, True) for i in range(deals)]
+    return ([_from_row(out[i], setup, False) for i in range(start, end)],
+            [_from_row(god[i], setup, True) for i in range(start, end)]
             if both else [],
             counters.sum(axis=0))
+
+
+def run_fast_listed(setup: Setup, indices, workers: int = 1, progress=None,
+                    tt_bits: Optional[int] = None, table=None):
+    """
+    `run_fast` over chosen deal numbers rather than a range: deal `i` is
+    played exactly as `run_fast` would play it, and the records come back in
+    the order `indices` gives them.
+
+    Exists for round two. Which deals come back round is fixed by the auction
+    before the seat's bid, so it is the same for every action; once one action
+    has found them, the rest need play only those. On a hand the bidding gets
+    back to one deal in fifteen, that is most of the cost of every action
+    after the first.
+
+    Returns `(records, spent)`.
+    """
+    import numpy as np
+    import numba
+    import fastsim
+
+    threads = max(1, min(int(workers), numba.config.NUMBA_NUM_THREADS))
+    numba.set_num_threads(threads)
+    chunks = threads * CHUNKS_PER_THREAD
+
+    pin = 0
+    for card in setup.hand:
+        pin |= 1 << _card_id(card)
+    up = _card_id(setup.up_card) if setup.up_card is not None else -1
+
+    pass_models, assumptions = codes(fastsim)
+    tt = table if table is not None else new_table(tt_bits)
+    indices = np.asarray(indices, dtype=np.int64)
+    n = len(indices)
+    out = np.zeros((n, fastsim.RECORD), dtype=np.int64)
+    counters = np.zeros((chunks, fastsim.COUNTERS), dtype=np.int64)
+
+    block = n if progress is None else max(
+        chunks * DEALS_PER_CHUNK_PER_BLOCK, -(-n // PROGRESS_BLOCKS))
+    for lo in range(0, n, max(1, block)):
+        hi = min(lo + block, n)
+        part = np.zeros((hi - lo, fastsim.RECORD), dtype=np.int64)
+        fastsim.run_listed(
+            indices[lo:hi], setup.seed, pin, setup.seat, up, setup.dealer,
+            setup.player_eval_sims, setup.bid_eval_sims,
+            setup.discard_eval_sims,
+            0.0 if setup.epsilon is None else float(setup.epsilon),
+            setup.epsilon is not None, players.MIN_WORLDS,
+            pass_models[setup.pass_model], assumptions[setup.assume],
+            -1 if setup.suit is None else int(setup.suit),
+            1 if setup.let_auction_play else 0,
+            1 if setup.stick else 0, 1 if setup.allow_loners else 0,
+            chunks, tt, part, counters)
+        out[lo:hi] = part
+        if progress:
+            progress(hi, n)
+
+    return ([_from_row(out[j], setup, False) for j in range(n)],
+            counters.sum(axis=0))
+
+
+# A sweep told to keep going until enough deals reach the seat stops here
+# regardless, so a hand the auction almost never brings back cannot run
+# forever. Reported, not hidden: the caller sees how many it got.
+MAX_DEALS = 500_000
+
+
+def run_fast_until(setup: Setup, min_reached: int, deals: int,
+                   workers: int = 1, progress=None,
+                   tt_bits: Optional[int] = None, table=None,
+                   max_deals: int = MAX_DEALS):
+    """
+    `run_fast`, extended batch by batch until `min_reached` deals have
+    reached the seat (`Record.forced`), or `max_deals` have been played.
+
+    `deals` is the first batch. Each batch after it is sized from the reach
+    rate seen so far, with a margin, so a hand that comes back one deal in
+    twenty takes two or three batches rather than dozens. The deals are
+    numbered on from where the last batch stopped, so the result is exactly
+    the first N deals of the sweep -- the same records a single
+    `run_fast(setup, N)` would give, which is what lets every other action be
+    priced over the same N afterwards.
+
+    `progress(fraction)` is called with how far towards `min_reached` the
+    sweep is, as a fraction.
+
+    Returns `(records, spent)`.
+    """
+    records, spent = [], None
+    reached = 0
+    batch = max(1, min(deals, max_deals))
+    while True:
+        base = reached
+
+        def note(done, total, base=base, batch=batch, played=len(records)):
+            if progress is None:
+                return
+            # Within a batch, guess the reach by the rate so far; it is only
+            # ever a progress bar.
+            rate = base / played if played else 1.0 / 20
+            guess = base + rate * done
+            progress(min(0.99, guess / max(1, min_reached)))
+
+        got, _, cost = run_fast(setup, batch, workers=workers,
+                                progress=note if progress else None,
+                                tt_bits=tt_bits, table=table,
+                                start=len(records))
+        records.extend(got)
+        spent = cost if spent is None else spent + cost
+        reached += sum(1 for rec in got if rec.forced)
+        if reached >= min_reached or len(records) >= max_deals:
+            break
+        rate = reached / len(records)
+        want = (min_reached - reached) / rate * 1.05 if rate else batch * 4
+        batch = int(min(max(want, 64), max_deals - len(records)))
+    if progress is not None:
+        progress(1.0)
+    return records, spent
 
 # ------------------------------------------------------------- reading them
 
@@ -723,6 +878,18 @@ def interval(values):
     mean = sum(values) / n
     var = sum((v - mean) ** 2 for v in values) / (n - 1)
     return mean, 1.96 * (var / n) ** 0.5
+
+
+def assumed_verb(setup: Setup) -> str:
+    """What `--assume` has the seat do, as a past-tense phrase."""
+    if setup.assume == ASSUME_NAME:
+        return "named %s (round two)" % r.suit_name(setup.suit)
+    if setup.assume == ASSUME_NAME_ALONE:
+        return "named %s alone (round two)" % r.suit_name(setup.suit)
+    return {ASSUME_ORDER: "ordered",
+            ASSUME_ALONE: "ordered alone",
+            ASSUME_PASS: "passed round one",
+            ASSUME_PASS_TWICE: "passed in both rounds"}[setup.assume]
 
 
 def report(name: str, records, setup: Setup):
@@ -741,9 +908,7 @@ def report(name: str, records, setup: Setup):
         # what the call returned when it did: a hand worth +0.4 whenever you
         # get to order it, that only gets the chance a third of the time, is a
         # different proposition from one worth +0.4 every deal.
-        verb = {ASSUME_ORDER: "ordered",
-                ASSUME_ALONE: "ordered alone",
-                ASSUME_PASS: "passed round one"}[setup.assume]
+        verb = assumed_verb(setup)
         got = [rec for rec in records if rec.forced]
         sub_mean, sub_half = interval([rec.value for rec in got])
         print("    %-30s %d of %d (%.1f%%)"
@@ -751,8 +916,16 @@ def report(name: str, records, setup: Setup):
         if got:
             print("    %-30s %+.3f +/- %.3f points per deal"
                   % ("EV given you " + verb, sub_mean, sub_half))
-        print("    %-30s %+.3f +/- %.3f points per deal"
-              % ("EV over all deals", mean, half))
+        if setup.round_two:
+            # The deals the auction never brought back are not part of this
+            # question, and the compiled engine does not even play them, so
+            # everything below is over the reached ones alone.
+            records, n = got, len(got)
+            if not n:
+                return sub_mean, sub_half
+        else:
+            print("    %-30s %+.3f +/- %.3f points per deal"
+                  % ("EV over all deals", mean, half))
 
     roles = Counter(role_of(rec.caller, setup.seat) for rec in records)
     print("    %-30s" % "how the auction went")
@@ -849,6 +1022,12 @@ def parse_args(argv=None):
     parser.add_argument("--deals", type=int, default=DEALS,
                         help="layouts of the other seats to play out (default "
                              "%d). This is the axis the error bar is on" % DEALS)
+    parser.add_argument("--min-reached", type=int, default=None,
+                        help="with --assume, keep dealing past --deals until "
+                             "at least this many deals have reached your bid "
+                             "(capped at %d deals). Most useful for round "
+                             "two, which few deals get back to"
+                             % MAX_DEALS)
     parser.add_argument("--player-eval-sims", type=int, default=None,
                         help="worlds each player imagines per card-play "
                              "decision (default %d, the measured mean settle "
@@ -874,7 +1053,13 @@ def parse_args(argv=None):
                              "mixes the deals you called with the ones you "
                              "passed. The others pin the opening bid and "
                              "condition on it -- 'order' is the value of "
-                             "ordering this hand up")
+                             "ordering this hand up. 'name', 'name-alone' and "
+                             "'pass-twice' are round two: you pass the "
+                             "up-card, and on the deals where it comes back "
+                             "round to you, name --suit or pass again")
+    parser.add_argument("--suit", default=None,
+                        help="the suit to name with --assume name or "
+                             "name-alone: S, H, D or C. Not the up-card's")
     parser.add_argument("--let-auction-play",
                         action=argparse.BooleanOptionalAction, default=True,
                         help="with --assume, run the auction and pin your "
@@ -955,6 +1140,15 @@ def setup_from(args) -> Setup:
             raise SystemExit("%s must be 0-%d, got %r"
                              % (name, game.PLAYERS - 1, value))
 
+    if args.assume in ROUND_TWO_ASSUMPTIONS and up_card is None:
+        raise SystemExit("--assume %s needs --up: round two is defined by "
+                         "which suit was turned down" % args.assume)
+    try:
+        suit = check_round_two(args.assume, args.suit, up_card,
+                               not args.no_loners)
+    except ValueError as why:
+        raise SystemExit(str(why))
+
     if not args.let_auction_play and args.assume not in (ASSUME_ORDER,
                                                          ASSUME_ALONE):
         raise SystemExit(
@@ -984,7 +1178,41 @@ def setup_from(args) -> Setup:
                  assume=args.assume,
                  let_auction_play=args.let_auction_play,
                  allow_loners=not args.no_loners, stick=args.stick,
-                 seed=args.seed, engine=args.engine)
+                 seed=args.seed, engine=args.engine, suit=suit)
+
+
+def check_round_two(assume: str, suit, up_card,
+                    allow_loners: bool) -> Optional[int]:
+    """
+    The suit a round-two assumption names, checked; None for the others.
+
+    `suit` may be a letter ("H"), a name ("hearts") or a natural suit index.
+    Raises ValueError for the turned-down suit, which round two cannot name,
+    for a named call without a suit, and for a loner with loners off.
+    """
+    if assume not in (ASSUME_NAME, ASSUME_NAME_ALONE):
+        if suit is not None:
+            raise ValueError("a suit only means something with --assume %s "
+                             "or %s" % (ASSUME_NAME, ASSUME_NAME_ALONE))
+        return None
+    if suit is None:
+        raise ValueError("--assume %s needs a suit to name" % assume)
+    if isinstance(suit, str):
+        text = suit.strip().lower()
+        found = [s for s in range(4)
+                 if text in (r.suit_name(s), r.suit_name(s)[0])]
+        if not found:
+            raise ValueError("no such suit: %r" % (suit,))
+        suit = found[0]
+    if not 0 <= int(suit) < 4:
+        raise ValueError("no such suit: %r" % (suit,))
+    suit = int(suit)
+    if up_card is not None and suit == up_card.suit:
+        raise ValueError("%s was turned down, so it cannot be named in "
+                         "round two" % r.suit_name(suit))
+    if assume == ASSUME_NAME_ALONE and not allow_loners:
+        raise ValueError("cannot name a suit alone with loners off")
+    return suit
 
 
 def describe(setup: Setup, args):
@@ -1005,7 +1233,14 @@ def describe(setup: Setup, args):
              else ", epsilon %g" % setup.epsilon,
              "" if setup.allow_loners else ", loners off",
              ", stick the dealer" if setup.stick else ""))
-    if setup.assume != ASSUME_AUCTION:
+    if setup.round_two:
+        then = ("pass again" if setup.assume == ASSUME_PASS_TWICE
+                else "name %s%s" % (r.suit_name(setup.suit),
+                                    " alone" if setup.assume
+                                    == ASSUME_NAME_ALONE else ""))
+        print("  %-30s you pass the up-card; if every seat passes it and the "
+              "bidding comes back to you, you %s" % ("assumption", then))
+    elif setup.assume != ASSUME_AUCTION:
         print("  %-30s you %s%s"
               % ("assumption",
                  {ASSUME_ORDER: "order it up",
@@ -1049,7 +1284,20 @@ def main(argv=None):
               file=sys.stderr)
 
     spent = None
-    if setup.engine == FAST:
+    if args.min_reached is not None:
+        if setup.engine != FAST or args.both or setup.assume == ASSUME_AUCTION:
+            raise SystemExit("--min-reached needs --assume, --engine fast and "
+                             "no --both")
+        pimc, spent = run_fast_until(
+            setup, args.min_reached, args.deals, workers=args.workers,
+            tt_bits=args.tt_bits,
+            progress=None if args.quiet else
+            (lambda f: print("  ... %3.0f%% of %d reached, %.0fs"
+                             % (100 * f, args.min_reached,
+                                time.time() - started), file=sys.stderr)))
+        god = []
+        args.deals = len(pimc)
+    elif setup.engine == FAST:
         pimc, god, spent = run_fast(setup, args.deals, both=args.both,
                                     workers=args.workers,
                                     tt_bits=args.tt_bits,

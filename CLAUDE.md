@@ -29,7 +29,7 @@ Tests. The unit suite is stdlib `unittest`, so it needs nothing beyond numpy
 and numba:
 
 ```bash
-python -m unittest discover               # whole suite, 431 tests, ~110s
+python -m unittest discover               # whole suite, 484 tests, ~250s
 python -m unittest tests.test_solver      # one module
 python -m unittest tests.test_solver.TestLeftBower -v
 python tests/test_solver.py               # or run a file directly
@@ -1022,6 +1022,33 @@ Four decisions are baked in, all of them settled by measurement in
 - **Going alone needs about four times the deals** for the same precision --
   its outcomes run -2..+4 rather than -2..+2 -- so `Evaluation.best()` is a
   convenience and explicitly not advice. Show the intervals.
+
+### Round two
+
+`evaluate(..., bidding_round=2, min_reached=1000)` prices the seat's
+**round-two** bid: it passes the up-card, every other seat bids for itself, and
+each action -- `"hearts"`, `"hearts alone"`, ..., `"pass"` (again); see
+`round_two_actions` -- is averaged over only the deals where all four turned
+the up-card down and nobody named a suit before the seat. The auction runs in
+full; deals it never brings back are recorded unplayed (`R_TRICKS = -1`) and
+excluded. `hand_ev.py --assume name --suit H` (also `name-alone`,
+`pass-twice`) is the same question from the command line.
+
+Two things make it affordable, and both rest on one fact: **which deals come
+back does not depend on the action**, because everything before the seat's
+round-two bid is the same auction (`test_round_two_actions_see_the_same_deals`).
+
+- **`min_reached` keeps dealing until enough deals come back.** Reach is low
+  -- 5.7% for `TH AS AD KD JD`, `9C` up, from eldest; 2% for a weak hand at
+  seat 2 -- so `deals` is only the first batch, and `hand_ev.run_fast_until`
+  sizes later ones from the rate seen so far, capped at `hand_ev.MAX_DEALS`.
+  Batches number on from where the last stopped, so the result is exactly the
+  first N deals of one sweep. The page's slider means this in round two.
+- **Only the first action deals the whole sweep.** The rest replay just the
+  reached deal numbers through `fastsim.run_listed`, with identical records
+  (`test_later_actions_replay_only_the_deals_that_came_back`). Measured at
+  `min_reached=1000`, ten threads: 111 s -> 33 s on the 5.7% hand, 325 s ->
+  60 s on the 2% one. What remains is mostly finding the reached deals.
 
 Every result is a frozen dataclass with `as_dict()` returning plain JSON --
 cards as `"JS"`, suits as `"spades"` -- so a web layer never sees a

@@ -699,6 +699,29 @@ class ForcedOpeningBid:
         return getattr(self.inner, "solves", 0)
 
 
+class ForcedRoundTwoBid(ForcedOpeningBid):
+    """
+    A player who passes the up-card and has its **round-two** bid pinned.
+
+    The question this asks is "everybody turned it down and it is back to me:
+    what is my hand worth if I name hearts?" So round one is always a pass,
+    and the first round-two bid is `action` / `suit` / `alone`. Discards and
+    play are the seat's own, and every other seat bids for itself.
+
+    `forced` is set only when the round-two pin fires -- that is, when every
+    seat passed the up-card and nobody named a suit before this one. Those
+    are the only deals the question is about. Under stick-the-dealer a dealer
+    may not pass round two, so a pinned second pass cannot fire there either.
+    """
+
+    def bid(self, turn):
+        if turn.bidding_round == b.ROUND_ONE:
+            for option in turn.options:
+                if option.action == t.PASS:
+                    return option
+        return super().bid(turn)
+
+
 def table_of(factory, n: int = PLAYERS, seed: Optional[int] = None):
     """
     Four players from one factory, called with the seat number.

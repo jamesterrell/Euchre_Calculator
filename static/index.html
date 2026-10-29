@@ -114,6 +114,7 @@
   .pc .mid { position: absolute; inset: 0; display: flex; font-weight: 400;
              align-items: center; justify-content: center; font-size: 2.4rem; }
   .pc.red { color: var(--red); } .pc.black { color: var(--black); }
+  td .red { color: var(--red); } td .black { color: var(--black); }
   /* A card already placed is gone from the deck, not faded in it: dimming a
      white card over green only makes a green card. It leaves the outline of
      where it was, which is what an empty space looks like on a table. */
@@ -166,6 +167,19 @@
   .actionbar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
   .actionbar .checks { flex: 1 1 auto; }
   .checks { display: flex; gap: 8px; flex-wrap: wrap; }
+  .checks[hidden] { display: none; }
+  /* Round two: which suits to price, then how to call them. */
+  .two { display: flex; flex-direction: column; gap: 8px; }
+  .two[hidden] { display: none; }
+  .two .cap { margin: 0; font-size: .7rem; text-transform: uppercase;
+              letter-spacing: .07em; font-weight: 700; color: var(--cap);
+              text-shadow: var(--shadow); }
+  .suitpick .sym { font-size: 1.05rem; line-height: 1; }
+  .suitpick .sym.red { color: var(--red); }
+  .suitpick label:has(input:checked) .sym { color: #fff; }
+  /* The turned-down suit cannot be named in round two. */
+  .checks label:has(input:disabled) { opacity: .45; cursor: default;
+                                      text-decoration: line-through; }
   .checks label { display: inline-flex; align-items: center; gap: 7px;
     border: 1px solid #7f9db9; border-radius: 3px; padding: 5px 12px;
     cursor: pointer; color: #000; font-size: .86rem; text-shadow: none;
@@ -177,6 +191,10 @@
     background: linear-gradient(180deg, #4b8ef7 0%, #1f63dd 50%, #0f49bd 100%);
     text-shadow: 0 1px 1px rgba(0, 0, 0, .4); }
   .checks label:has(input:checked):hover { border-color: #ffd98a; }
+  /* Which round is being priced: the same Luna buttons, one of two. */
+  .rounds { margin-bottom: 10px; }
+  .rounds .hint { color: var(--on-felt-dim); font-size: .8rem;
+                  text-shadow: var(--shadow); align-self: center; }
 
   /* ---- progress: XP's row of green blocks ---- */
   #work { margin-top: 14px; }
@@ -291,7 +309,7 @@
               <select id="dealer"><option selected>0</option><option>1</option>
                 <option>2</option><option>3</option></select></div>
           </div>
-          <p class="cap">Deals to play <span id="deals-label"></span></p>
+          <p class="cap"><span id="deals-what">Deals to play</span> <span id="deals-label"></span></p>
           <input type="range" id="deals" min="100" max="10000" step="100"
                  value="1000" style="width:100%; padding:0">
           <div class="note" id="speak" style="margin-top:10px"></div>
@@ -303,11 +321,26 @@
 
     <fieldset>
       <legend>What to price</legend>
+      <div class="checks rounds" id="rounds">
+        <label><input type="radio" name="round" value="1" checked> Round one: the up-card is up</label>
+        <label><input type="radio" name="round" value="2"> Round two: everyone turned it down</label>
+        <span class="hint" id="round-hint"></span>
+      </div>
       <div class="actionbar">
         <div class="checks" id="actions">
           <label><input type="checkbox" value="order" checked> Order it up</label>
           <label><input type="checkbox" value="order alone" checked> Order it alone</label>
           <label><input type="checkbox" value="pass" checked> Pass</label>
+        </div>
+        <div class="two" id="actions-two" hidden>
+          <p class="cap">Suits to name</p>
+          <div class="checks suitpick" id="suits-two"></div>
+          <p class="cap">How</p>
+          <div class="checks" id="how-two">
+            <label><input type="checkbox" value="name" checked> Call it</label>
+            <label><input type="checkbox" value="alone" checked> Call it alone</label>
+            <label><input type="checkbox" value="pass" checked> Pass again</label>
+          </div>
         </div>
         <button class="go" id="run-eval" type="button">Evaluate</button>
       </div>
@@ -643,6 +676,7 @@ const ZANY = [
 ];
 
 let perDeal = 0.006, perDealFirst = 0.011, queriesDone = 0;
+let ROUND_TWO_COST = 0.5;
 let rotator = null, tick = null;
 
 function rotate(list, into) {
@@ -710,8 +744,54 @@ $("eval-random").addEventListener("click", () => {
 });
 board.setAll({hand: ["TH", "AS", "AD", "KD", "JD"], up: ["9H"]});
 
+function chosenRound() {
+  return +document.querySelector("#rounds input:checked").value;
+}
+/* Round two names suits rather than ordering the up-card. Each ticked suit
+   times each ticked way of calling it is one action, which the server takes
+   by name: "hearts", "hearts alone", "pass".
+
+   One toggle per suit. The up-card's suit is struck out, since round two
+   cannot name it; a suit freed by changing the up-card comes back ticked. */
+$("suits-two").innerHTML = SUITS.map(s =>
+  `<label><input type="checkbox" value="${s.name}" checked>
+     <span class="sym ${s.red ? "red" : ""}">${s.sym}</span> ${s.name}</label>`)
+  .join("");
+/* `var`, and synced again once the boxes exist: the board calls its change
+   hook while it is being built, which is before this line runs. */
+var turnedDown;
+function syncSuits() {
+  let up;
+  try { up = board.get("up")[0]; } catch (e) { return; }   // still being built
+  const k = up ? up.slice(-1) : null;
+  if (k === turnedDown) return;
+  $("suits-two").querySelectorAll("input").forEach(box => {
+    const s = SUITS.find(x => x.name === box.value);
+    if (s.k === k) { box.disabled = true; box.checked = false; }
+    else if (box.disabled) { box.disabled = false; box.checked = true; }
+  });
+  turnedDown = k;
+}
+turnedDown = undefined;
+syncSuits();
 function chosenActions() {
-  return [...$("actions").querySelectorAll("input:checked")].map(i => i.value);
+  if (chosenRound() === 1)
+    return [...$("actions").querySelectorAll("input:checked")].map(i => i.value);
+  const how = new Set([...$("how-two").querySelectorAll("input:checked")]
+                        .map(i => i.value));
+  const out = [];
+  $("suits-two").querySelectorAll("input:checked:not(:disabled)").forEach(box => {
+    if (how.has("name")) out.push(box.value);
+    if (how.has("alone")) out.push(box.value + " alone");
+  });
+  if (how.has("pass")) out.push("pass");
+  return out;
+}
+function actionLabel(action, round) {
+  if (round !== 2) return action;
+  if (action === "pass") return "pass again";
+  const s = SUITS.find(x => action.startsWith(x.name));
+  return `name <span class="${s.red ? "red" : "black"}">${s.sym}</span> ${action}`;
 }
 function seatsBefore() {
   const seat = +$("seat").value, dealer = +$("dealer").value;
@@ -720,13 +800,36 @@ function seatsBefore() {
 }
 function estimate() {
   const rate = queriesDone ? perDeal : perDealFirst;
-  return +$("deals").value * rate * (chosenActions().length / 3);
+  /* A round-two action only plays the deals that come back round, and stops
+     the rest at the auction, so it costs well under a round-one action. */
+  const each = chosenRound() === 2 ? ROUND_TWO_COST : 1;
+  return +$("deals").value * rate * each * (chosenActions().length / 3);
 }
 function refreshDeals() {
   const d = +$("deals").value, secs = Math.max(1, Math.round(estimate()));
-  $("deals-label").textContent = `— ${d.toLocaleString()}, about ${secs}s` +
-    (queriesDone ? "" : " for the first one");
+  const two = chosenRound() === 2;
+  syncSuits();
+  /* Round two keeps dealing until this many deals have come back round, so
+     how long it takes depends on how often that happens -- which is the
+     thing being measured, and cannot be quoted in advance. */
+  $("deals-what").textContent = two ? "Deals that must come back to you"
+                                    : "Deals to play";
+  $("deals-label").textContent = two
+    ? `— at least ${d.toLocaleString()}`
+    : `— ${d.toLocaleString()}, about ${secs}s` +
+      (queriesDone ? "" : " for the first one");
   const n = seatsBefore();
+  $("actions").hidden = two;
+  $("actions-two").hidden = !two;
+  $("round-hint").textContent = two
+    ? "Priced only on the deals where all four pass the up-card and the bidding comes back to you."
+    : "";
+  if (two) {
+    $("speak").textContent = n === 0
+      ? "You speak first in round two, so it reaches you whenever all four pass the up-card."
+      : `${n} seat${n === 1 ? "" : "s"} name before you in round two — a deal counts only if they pass too.`;
+    return;
+  }
   $("speak").textContent = n === 0
     ? "You speak first, so the bid is always yours to make."
     : `${n} seat${n === 1 ? "" : "s"} speak before you — so the auction will not always reach you.`;
@@ -734,6 +837,8 @@ function refreshDeals() {
 ["deals", "seat", "dealer"].forEach(id =>
   $(id).addEventListener("input", refreshDeals));
 $("actions").addEventListener("change", refreshDeals);
+$("actions-two").addEventListener("change", refreshDeals);
+$("rounds").addEventListener("change", refreshDeals);
 
 function bar(ev, lo, hi, span) {
   const pos = (v) => Math.max(0, Math.min(1, (v - span[0]) / (span[1] - span[0]))) * 100;
@@ -751,7 +856,7 @@ function showEvaluation(e) {
     const t = a.tricks || {}, n = t.contracts || 0;
     const pct = (k) => n ? `${Math.round(100 * (t[k] || 0) / n)}%` : "—";
     return `<tr>
-      <td>${a.action}${a === best && acts.length > 1
+      <td>${actionLabel(a.action, e.round)}${a === best && acts.length > 1
             ? ' <span class="tag">highest</span>' : ""}</td>
       <td class="num"><span class="ev">${a.ev >= 0 ? "+" : ""}${a.ev.toFixed(3)}</span>
         <span class="pm">± ${a.interval.toFixed(3)}</span></td>
@@ -760,12 +865,28 @@ function showEvaluation(e) {
       <td class="num">${pct("euchred")}</td></tr>`;
   }).join("");
   const reach = Math.round(100 * (acts[0] ? acts[0].reach_rate : 1));
+  const reached = acts[0] ? acts[0].reached : 0;
   const overlap = acts.some(a => a !== best &&
                             a.ev + a.interval >= best.ev - best.interval);
+  const where = e.round === 2
+    ? `Measured over the ${reached.toLocaleString()} of
+       ${e.deals.toLocaleString()} deals (${reach}%) where all four seats
+       turned the up-card down and the bidding came back round to you — the
+       only deals on which you ever name a suit. The rest were dealt and
+       discarded.`
+    : `Measured over the ${reach}% of deals where the auction reached you — the
+       only deals on which you ever face the choice.`;
   $("eval-caveat").innerHTML =
-    `Measured over the ${reach}% of deals where the auction reached you — the
-     only deals on which you ever face the choice. Trick shares are of the
-     contracts your team ended up with.` +
+    where + ` Trick shares are of the contracts your team ended up with.` +
+    (e.round === 2 && acts[0] && reached < (e.min_reached || 0)
+      ? ` <strong>Stopped at ${e.deals.toLocaleString()} deals with only
+          ${reached} back to you</strong> — this hand is almost never reached
+          in round two.`
+      : "") +
+    (e.round === 2 && reached < 400
+      ? ` <strong>Only ${reached} deals came back to you</strong>, so the ranges
+          are wide — play more deals to tighten them.`
+      : "") +
     (overlap && acts.length > 1
       ? ` <strong>These ranges overlap</strong>, so this run does not separate
           the top actions. Play more deals if you need to know which is really
@@ -790,7 +911,7 @@ async function watchProgress(total) {
     $("work-meta").textContent =
       `${Math.round(pct * 100)}% · ${secs.toFixed(0)}s elapsed` +
       (stage ? ` · pricing “${stage}”` : "") +
-      ` · about ${Math.round(total)}s in all`;
+      (chosenRound() === 2 ? "" : ` · about ${Math.round(total)}s in all`);
   }, 700);
 }
 
@@ -816,12 +937,17 @@ $("run-eval").addEventListener("click", async () => {
   try {
     const got = await post("/api/evaluate", {
       hand: hand.join(" "), up_card: up, seat: +$("seat").value,
-      dealer: +$("dealer").value, deals: +$("deals").value, actions});
+      dealer: +$("dealer").value, deals: +$("deals").value, actions,
+      round: chosenRound(),
+      min_reached: chosenRound() === 2 ? +$("deals").value : null});
     $("track-fill").style.width = "100%";
     showEvaluation(got);
     $("zany").innerHTML = "<b>Done.</b>";
     $("work-meta").textContent =
-      `${got.deals.toLocaleString()} deals × ${actions.length} ` +
+      `${got.deals.toLocaleString()} deals × ${actions.length}` +
+      (got.round === 2 && got.actions[0]
+        ? ` · ${got.actions[0].reached.toLocaleString()} came back to you` : "") +
+      ` ` +
       `in ${((performance.now() - t0) / 1000).toFixed(1)}s`;
   } catch (e) {
     fail(err, e.message);

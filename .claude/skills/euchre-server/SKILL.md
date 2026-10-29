@@ -47,7 +47,8 @@ Three things about it are worth knowing.
 
     GET  /                  the page
     GET  /api/health        {"ready", "busy", "workers", ...}
-    POST /api/evaluate      {"hand", "up_card", "seat", "dealer", "deals", ...}
+    POST /api/evaluate      {"hand", "up_card", "seat", "dealer", "deals",
+                             "round": 1|2, "min_reached", "actions", ...}
     POST /api/solve         {"hands": [4], "up_card", "dealer", "seat"}
 
 Both replies are `as_dict()` straight off the `api` result, so the server does

@@ -574,7 +574,8 @@ class TestSweep(unittest.TestCase):
         F.run_deals(0, deals, seed, pin, kw.get("seat", 0), up,
                     kw.get("dealer", 3), 20, 12, 12, 0.05, True,
                     players.MIN_WORLDS, F.PASS_ZERO,
-                    kw.get("assume", F.ASSUME_AUCTION), 1, 0, 1, chunks, tt,
+                    kw.get("assume", F.ASSUME_AUCTION),
+                    kw.get("assume_suit", -1), 1, 0, 1, chunks, tt,
                     out, god, kw.get("both", 0), counters)
         return out, god
 
@@ -639,6 +640,48 @@ class TestSweep(unittest.TestCase):
         for row in out:
             if int(row[F.R_FORCED]):
                 self.assertEqual(int(row[F.R_CALLER]), 2)
+
+    def test_a_round_two_pin_fires_only_when_the_bidding_comes_back(self):
+        """
+        Round two: pass the up-card, then name a suit if it comes round.
+
+        A deal counts only if every seat turned the up-card down and nobody
+        named a suit first. On those the seat is the caller in the named suit
+        and the hand is played; on the rest it is recorded unplayed.
+        """
+        hearts = r.HEARTS
+        for seat in (0, 2):
+            with self.subTest(seat=seat):
+                out, _ = self._run(60, 2, seat=seat, dealer=3,
+                                   assume=F.ASSUME_NAME, assume_suit=hearts)
+                fired = [row for row in out if int(row[F.R_FORCED])]
+                self.assertGreater(len(fired), 0, "never came back round")
+                self.assertLess(len(fired), len(out),
+                                "the up-card was never ordered in 60 deals")
+                for row in out:
+                    if int(row[F.R_FORCED]):
+                        self.assertEqual(int(row[F.R_CALLER]), seat)
+                        self.assertEqual(int(row[F.R_TRUMP]), hearts)
+                        self.assertEqual(int(row[F.R_ALONE]), 0)
+                        self.assertGreaterEqual(int(row[F.R_TRICKS]), 0)
+                    else:
+                        self.assertEqual(int(row[F.R_TRICKS]), -1)
+                        self.assertNotEqual(int(row[F.R_CALLER]), seat)
+
+    def test_round_two_actions_see_the_same_deals(self):
+        """
+        Which deals come back round cannot depend on what the seat would
+        name there -- everything before that bid is the same auction. So every
+        round-two action is priced over exactly the same deals, and the
+        comparison between them is paired.
+        """
+        runs = [self._run(60, 2, seat=2, dealer=3, assume=kind,
+                          assume_suit=suit)[0][:, F.R_FORCED].copy()
+                for kind, suit in ((F.ASSUME_NAME, r.HEARTS),
+                                   (F.ASSUME_NAME_ALONE, r.CLUBS),
+                                   (F.ASSUME_PASS_TWICE, -1))]
+        for other in runs[1:]:
+            self.assertTrue(np.array_equal(runs[0], other))
 
     def test_god_mode_rows_match_solve_bidding(self):
         """`--both` solves the same layout it played, not a different one."""

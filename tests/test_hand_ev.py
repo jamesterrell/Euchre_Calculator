@@ -202,7 +202,8 @@ class TestRoles(unittest.TestCase):
         for assume in h.ASSUMPTIONS:
             setup = a_setup(assume=assume)
             for role in h.ROLES:
-                if assume == h.ASSUME_PASS and role == "you called":
+                if (assume in (h.ASSUME_PASS,) + h.ROUND_TWO_ASSUMPTIONS
+                        and role == "you called"):
                     continue
                 self.assertEqual(h.role_label(role, setup), role,
                                  "%r under --assume %s" % (role, assume))
@@ -464,6 +465,39 @@ class TestAssumeAnOpeningBid(unittest.TestCase):
         for rec in got:
             if rec.forced:
                 self.assertEqual(rec.caller, 2)
+
+    def test_round_two_on_the_python_path(self):
+        """
+        `players.ForcedRoundTwoBid`: pass the up-card, name the suit if it
+        comes back. Where it fires the seat is the caller in that suit; where
+        it does not, somebody else called before the bidding got back.
+        """
+        # Eldest, so round two reaches it whenever round one passes out --
+        # 4 of these 24 deals at one bid sample.
+        setup = h.Setup(**{**a_setup(seat=0, dealer=3).__dict__,
+                           "assume": h.ASSUME_NAME, "suit": r.HEARTS,
+                           "engine": h.PYTHON})
+        got = [h.play_one(setup, i) for i in range(24)]
+        self.assertTrue(any(rec.forced for rec in got), "never came back")
+        self.assertFalse(all(rec.forced for rec in got),
+                         "nobody ordered the nine of spades in 24 deals")
+        for rec in got:
+            if rec.forced:
+                self.assertEqual((rec.caller, rec.trump), (0, r.HEARTS))
+            else:
+                self.assertNotEqual(rec.caller, 0)
+
+    def test_round_two_rejects_the_turned_down_suit(self):
+        with self.assertRaises(ValueError):
+            h.check_round_two(h.ASSUME_NAME, "S", UP, True)
+        with self.assertRaises(ValueError):
+            h.check_round_two(h.ASSUME_NAME, None, UP, True)
+        with self.assertRaises(ValueError):
+            h.check_round_two(h.ASSUME_NAME_ALONE, "H", UP, False)
+        self.assertEqual(h.check_round_two(h.ASSUME_NAME, "hearts", UP, True),
+                         r.HEARTS)
+        self.assertIsNone(h.check_round_two(h.ASSUME_PASS_TWICE, None, UP,
+                                            True))
 
     def test_skipping_the_auction_always_orders(self):
         setup = a_setup(seat=2, dealer=3, assume=h.ASSUME_ORDER,
