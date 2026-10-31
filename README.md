@@ -15,6 +15,10 @@ There are no Euchre heuristics anywhere in it: no hand-strength count, no
 right bower is a good card. The only rule it enforces is that you must follow
 suit. Everything else it works out by playing hands to the end and counting.
 
+![The calculator pricing a round-two call: K-Q of hearts, the ace of spades
+and the red jacks, the nine of spades turned down. Naming hearts is worth
++0.587 a deal over the 10,403 deals the bidding came back round on.](docs/app.png)
+
 **[`docs/writeup.md`](docs/writeup.md) is the long-form version of all of this**
 -- the same engine explained for Euchre players, with one whole deal narrated
 card by card and every option priced. Start there if you want the argument
@@ -40,7 +44,8 @@ python server.py --workers 10        # then open http://127.0.0.1:8000
 
 That is the whole thing as a web page. Give it five cards and an up-card and
 it prices your three options -- order it up, go alone, pass -- against a table
-that cannot see your hand. The first run compiles for about eighty seconds and
+that cannot see your hand. Or price round two: which suit to name, and whether
+to go alone, once all four have turned the up-card down. The first run compiles for about eighty seconds and
 the page says so rather than hanging; every run after that starts in a second
 or two.
 
@@ -281,11 +286,25 @@ and what it changes.
 python server.py --workers 10      # then open http://127.0.0.1:8000
 ```
 
-Two tabs. **Evaluate a hand** asks what five cards are worth to a table that
+Three tabs. **Evaluate a hand** asks what five cards are worth to a table that
 cannot see them -- a number per action, with its error bar, over the deals the
 auction actually reaches you on. **Solve a whole deal** takes all four hands
 and answers exactly: the auction God Mode runs, and every card of the optimal
-line.
+line. **About** explains how to read the numbers: what the `±` means, who you are
+playing against, and what the engine does not know.
+
+Evaluate prices either round of the bidding. Round one is order it up, go
+alone, or pass. Round two is the screenshot above: tick the suits to name and
+how to call them, and each one is averaged over only the deals where all four
+seats turned the up-card down and nobody named a suit first. That is a small
+fraction of deals -- 10,403 out of 118,412 there -- so in round two the slider
+sets how many deals must *come back to you*, and the engine keeps dealing until
+they have. That run took about three minutes; a round-one query of 1,000 deals
+takes about seven seconds.
+
+The same page ships as `EuchreCalculator.exe`, its own window over Edge
+WebView2. `python app.py` opens that window from source, and
+`pyinstaller app.spec --distpath .` rebuilds the exe.
 
 Standard library only, no bundler, and it binds to localhost. The first run
 after a fresh checkout compiles for about eighty seconds; the page says so
@@ -421,8 +440,12 @@ functions compile on first call in a fresh process, about 15 s.
 ├── api.py                    # evaluate() and solve(), for a front end
 ├── server.py                 # a local web server over api.py
 ├── static/index.html         # the page it serves
+├── app.py                    # the desktop app: server.py in its own window
+├── app.spec                  # PyInstaller build -> EuchreCalculator.exe
+├── build_cards.py            # optional: XP's card faces out of cards.dll
 ├── interface.ipynb           # One worked example, notebook form
 ├── docs/writeup.md           # The engine explained for Euchre players
+├── docs/app.png              # The screenshot at the top of this file
 ├── notes/                    # Measurements, and the proofs behind bitcore
 ├── tests/                    # Test suite
 └── archive/                  # Superseded implementations, kept for reference
@@ -433,7 +456,7 @@ functions compile on first call in a fresh process, about 15 s.
 Standard library `unittest`; nothing extra to install.
 
 ```bash
-python -m unittest discover             # 431 tests, ~110s with JIT warmup
+python -m unittest discover             # 484 tests, ~250s with JIT warmup
 python -m unittest tests.test_solver    # one module
 python tests/test_fast_search.py 2000   # randomised regression sweep
 ```
